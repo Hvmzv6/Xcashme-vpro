@@ -1,0 +1,549 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { useState, useEffect, useCallback } from "react";
+import {
+  POSState,
+  Product,
+  Category,
+  Customer,
+  Supplier,
+  Sale,
+  CartItem,
+  PaymentMethod,
+  OrderStatus,
+  Expense,
+  SalaryPayout,
+  AuditLog,
+  Branch,
+  User,
+  UserRole
+} from "../types/pos";
+
+// High-quality bilingual mock initial data
+const INITIAL_PRODUCTS: Product[] = [
+  {
+    id: "prod-1",
+    barcode: "6281100112233",
+    name: "مياه معدنية 330 مل - Premium Mineral Water 330ml",
+    category: "مشروبات / Beverages",
+    costPrice: 0.25,
+    retailPrice: 0.50,
+    wholesalePrice: 0.40,
+    superWholesalePrice: 0.35,
+    stockQuantity: 450,
+    minStockAlert: 50,
+    hasExpiry: true,
+    expiryDate: "2027-12-01"
+  },
+  {
+    id: "prod-2",
+    barcode: "6281100445566",
+    name: "شوكولاتة داكنة 100غ - Dark Chocolate 100g",
+    category: "حلويات / Confectionery",
+    costPrice: 1.50,
+    retailPrice: 3.00,
+    wholesalePrice: 2.50,
+    superWholesalePrice: 2.20,
+    stockQuantity: 12, // Critical alert!
+    minStockAlert: 20,
+    hasExpiry: true,
+    expiryDate: "2026-11-15"
+  },
+  {
+    id: "prod-3",
+    barcode: "6281100998877",
+    name: "زيت زيتون بكر ممتاز 1 لتر - Olive Oil Extra Virgin 1L",
+    category: "مواد غذائية / Groceries",
+    costPrice: 6.00,
+    retailPrice: 12.00,
+    wholesalePrice: 10.00,
+    superWholesalePrice: 9.00,
+    stockQuantity: 80,
+    minStockAlert: 15,
+    hasExpiry: false
+  },
+  {
+    id: "prod-4",
+    barcode: "6281101223344",
+    name: "بن قهوة عربي 500غ - Arabic Coffee Ground 500g",
+    category: "مواد غذائية / Groceries",
+    costPrice: 4.50,
+    retailPrice: 8.50,
+    wholesalePrice: 7.20,
+    superWholesalePrice: 6.80,
+    stockQuantity: 110,
+    minStockAlert: 25,
+    hasExpiry: true,
+    expiryDate: "2027-03-10"
+  },
+  {
+    id: "prod-5",
+    barcode: "SN-9821849",
+    name: "سماعة رأس لاسلكية برو - Wireless Headphones Pro",
+    category: "إلكترونيات / Electronics",
+    costPrice: 35.00,
+    retailPrice: 59.00,
+    wholesalePrice: 50.00,
+    superWholesalePrice: 46.00,
+    stockQuantity: 15,
+    minStockAlert: 5,
+    hasExpiry: false,
+    serialNumber: "XHP-2026-0091"
+  }
+];
+
+const INITIAL_CATEGORIES: Category[] = [
+  { id: "cat-1", name: "مواد غذائية / Groceries", description: "المواد الغذائية والتموينية الأساسية" },
+  { id: "cat-2", name: "مشروبات / Beverages", description: "العصائر، المياه، المياه الغازية والساخنة" },
+  { id: "cat-3", name: "حلويات / Confectionery", description: "البسكويت، الشوكولاتة، والمسليات" },
+  { id: "cat-4", name: "إلكترونيات / Electronics", description: "الأجهزة الإلكترونية الصغيرة والملحقات" }
+];
+
+const INITIAL_CUSTOMERS: Customer[] = [
+  {
+    id: "cust-1",
+    name: "أحمد بن علي - Ahmed Bin Ali",
+    phone: "0501122334",
+    email: "ahmed@example.com",
+    debtAmount: 120.50, // Has some debt
+    loyaltyPoints: 340,
+    branchId: "branch-riyadh",
+    notes: "عميل متميز - تفضيل السداد الآجل"
+  },
+  {
+    id: "cust-2",
+    name: "سارة الشمري - Sara Al-Shammari",
+    phone: "0559988776",
+    email: "sara@example.com",
+    debtAmount: 0.00,
+    loyaltyPoints: 850,
+    branchId: "branch-riyadh",
+    notes: "نقاط ولاء عالية"
+  }
+];
+
+const INITIAL_SUPPLIERS: Supplier[] = [
+  {
+    id: "supp-1",
+    name: "شركة المراعي المحدودة - Almarai Co",
+    phone: "920000222",
+    companyName: "Almarai Company",
+    debtAmount: 4500.00, // We owe them money
+    branchId: "branch-riyadh"
+  },
+  {
+    id: "supp-2",
+    name: "موزع الإلكترونيات المعتمد - ElectroDist",
+    phone: "0114050607",
+    companyName: "ElectroDist Arabia",
+    debtAmount: 0.00,
+    branchId: "branch-riyadh"
+  }
+];
+
+const INITIAL_BRANCHES: Branch[] = [
+  { id: "branch-riyadh", name: "فرع الرياض الرئيسي - Riyadh Main", location: "الرياض، العليا", status: "online", lastSyncTime: "الآن" },
+  { id: "branch-jeddah", name: "فرع جدة - Jeddah Branch", location: "جدة، الروضة", status: "online", lastSyncTime: "قبل دقيقة" },
+  { id: "branch-dammam", name: "فرع الدمام - Dammam Branch", location: "الدمام، الشاطئ", status: "offline", lastSyncTime: "قبل ساعتين" }
+];
+
+const INITIAL_USER: User = {
+  id: "user-active",
+  name: "حمزة الصفصفي - Operator",
+  username: "admin_hamza",
+  role: UserRole.ADMIN,
+  branchId: "branch-riyadh",
+  isActive: true
+};
+
+const INITIAL_SALES: Sale[] = [
+  {
+    id: "sale-101",
+    invoiceNumber: "INV-2026-0001",
+    items: [
+      {
+        product: INITIAL_PRODUCTS[2],
+        quantity: 2,
+        selectedPriceType: "retail",
+        discountAmount: 0
+      },
+      {
+        product: INITIAL_PRODUCTS[0],
+        quantity: 6,
+        selectedPriceType: "wholesale",
+        discountAmount: 0
+      }
+    ],
+    subtotal: 26.40,
+    discount: 2.00,
+    tax: 3.66,
+    total: 28.06,
+    paymentMethod: PaymentMethod.CASH,
+    customerId: "cust-1",
+    customerName: "أحمد بن علي",
+    status: OrderStatus.COMPLETED,
+    branchId: "branch-riyadh",
+    userId: "user-active",
+    userName: "حمزة الصفصفي",
+    timestamp: "2026-06-29T14:30:00-07:00"
+  }
+];
+
+const INITIAL_EXPENSES: Expense[] = [
+  { id: "exp-1", category: "إيجار / Rent", amount: 1500, notes: "دفعة إيجار المستودع الشهري", timestamp: "2026-06-25T10:00:00-07:00", branchId: "branch-riyadh" },
+  { id: "exp-2", category: "فواتير / Utilities", amount: 245.50, notes: "فاتورة الكهرباء والإنترنت", timestamp: "2026-06-28T18:15:00-07:00", branchId: "branch-riyadh" }
+];
+
+const INITIAL_SALARIES: SalaryPayout[] = [
+  { id: "sal-1", employeeName: "خالد المحسن - Cashier 1", baseSalary: 1200, bonuses: 150, deductions: 50, notes: "راتب شهر يونيو مع مكافأة كفاءة مبيعات", payoutDate: "2026-06-28", branchId: "branch-riyadh" }
+];
+
+const INITIAL_LOGS: AuditLog[] = [
+  { id: "log-1", userId: "user-active", userName: "حمزة الصفصفي", userRole: UserRole.ADMIN, action: "تسجيل الدخول / Login", details: "تم الدخول بنجاح للنظام من فرع الرياض", timestamp: "2026-06-29T17:03:00-07:00", branchId: "branch-riyadh" }
+];
+
+export function usePOSState() {
+  const [state, setState] = useState<POSState>(() => {
+    const saved = localStorage.getItem("xcash_pos_state");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error("Failed to parse saved POS state", e);
+      }
+    }
+    return {
+      products: INITIAL_PRODUCTS,
+      categories: INITIAL_CATEGORIES,
+      customers: INITIAL_CUSTOMERS,
+      suppliers: INITIAL_SUPPLIERS,
+      sales: INITIAL_SALES,
+      expenses: INITIAL_EXPENSES,
+      salaries: INITIAL_SALARIES,
+      auditLogs: INITIAL_LOGS,
+      branches: INITIAL_BRANCHES,
+      suspendedCarts: [],
+      currentUser: INITIAL_USER,
+      activeBranchId: "branch-riyadh",
+      language: "ar",
+      theme: "dark"
+    };
+  });
+
+  // Keep localStorage in sync
+  useEffect(() => {
+    localStorage.setItem("xcash_pos_state", JSON.stringify(state));
+  }, [state]);
+
+  const toggleLanguage = useCallback(() => {
+    setState(prev => ({
+      ...prev,
+      language: prev.language === "ar" ? "en" : "ar"
+    }));
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    setState(prev => ({
+      ...prev,
+      theme: prev.theme === "dark" ? "light" : "dark"
+    }));
+  }, []);
+
+  // Log action helper
+  const logAction = useCallback((action: string, details: string) => {
+    const newLog: AuditLog = {
+      id: `log-${Date.now()}`,
+      userId: state.currentUser.id,
+      userName: state.currentUser.name,
+      userRole: state.currentUser.role,
+      action,
+      details,
+      timestamp: new Date().toISOString(),
+      branchId: state.activeBranchId
+    };
+    setState(prev => ({
+      ...prev,
+      auditLogs: [newLog, ...prev.auditLogs]
+    }));
+  }, [state.currentUser, state.activeBranchId]);
+
+  // Product Operations
+  const addProduct = useCallback((product: Omit<Product, "id">) => {
+    const newProduct: Product = {
+      ...product,
+      id: `prod-${Date.now()}`
+    };
+    setState(prev => ({
+      ...prev,
+      products: [newProduct, ...prev.products]
+    }));
+    logAction("إضافة منتج", `تم إضافة المنتج: ${newProduct.name} بسعر قطاعي ${newProduct.retailPrice}`);
+  }, [logAction]);
+
+  const updateProduct = useCallback((id: string, updated: Partial<Product>) => {
+    setState(prev => ({
+      ...prev,
+      products: prev.products.map(p => p.id === id ? { ...p, ...updated } : p)
+    }));
+    const originalName = state.products.find(p => p.id === id)?.name || id;
+    logAction("تحديث منتج", `تم تحديث بيانات المنتج: ${originalName}`);
+  }, [state.products, logAction]);
+
+  const deleteProduct = useCallback((id: string) => {
+    const originalName = state.products.find(p => p.id === id)?.name || id;
+    setState(prev => ({
+      ...prev,
+      products: prev.products.filter(p => p.id !== id)
+    }));
+    logAction("حذف منتج", `تم حذف المنتج: ${originalName}`);
+  }, [state.products, logAction]);
+
+  // Customer Operations
+  const addCustomer = useCallback((customer: Omit<Customer, "id" | "branchId" | "loyaltyPoints">) => {
+    const newCustomer: Customer = {
+      ...customer,
+      id: `cust-${Date.now()}`,
+      loyaltyPoints: 0,
+      branchId: state.activeBranchId
+    };
+    setState(prev => ({
+      ...prev,
+      customers: [newCustomer, ...prev.customers]
+    }));
+    logAction("إضافة عميل", `تم تسجيل العميل الجديد: ${newCustomer.name}`);
+  }, [state.activeBranchId, logAction]);
+
+  const recordCustomerPayment = useCallback((customerId: string, amount: number) => {
+    setState(prev => ({
+      ...prev,
+      customers: prev.customers.map(c => {
+        if (c.id === customerId) {
+          const newDebt = Math.max(0, c.debtAmount - amount);
+          return { ...c, debtAmount: Number(newDebt.toFixed(2)) };
+        }
+        return c;
+      })
+    }));
+    const customerName = state.customers.find(c => c.id === customerId)?.name || customerId;
+    logAction("سداد عميل", `تم استلام دفعة مالية بقيمة ${amount} من العميل ${customerName}`);
+  }, [state.customers, logAction]);
+
+  // Supplier Operations
+  const addSupplier = useCallback((supplier: Omit<Supplier, "id" | "branchId">) => {
+    const newSupplier: Supplier = {
+      ...supplier,
+      id: `supp-${Date.now()}`,
+      branchId: state.activeBranchId
+    };
+    setState(prev => ({
+      ...prev,
+      suppliers: [newSupplier, ...prev.suppliers]
+    }));
+    logAction("إضافة مورد", `تم تسجيل المورد: ${newSupplier.name}`);
+  }, [state.activeBranchId, logAction]);
+
+  const recordSupplierPayment = useCallback((supplierId: string, amount: number) => {
+    setState(prev => ({
+      ...prev,
+      suppliers: prev.suppliers.map(s => {
+        if (s.id === supplierId) {
+          const newDebt = Math.max(0, s.debtAmount - amount);
+          return { ...s, debtAmount: Number(newDebt.toFixed(2)) };
+        }
+        return s;
+      })
+    }));
+    const supplierName = state.suppliers.find(s => s.id === supplierId)?.name || supplierId;
+    logAction("سداد مورد", `تم دفع مبلغ بقيمة ${amount} للمورد ${supplierName}`);
+  }, [state.suppliers, logAction]);
+
+  // Sales and Transactions (Checkout)
+  const completeCheckout = useCallback((params: {
+    items: CartItem[];
+    paymentMethod: PaymentMethod;
+    customerId?: string;
+    discount: number;
+    taxRate: number; // e.g. 0.15 for 15% VAT
+  }) => {
+    const { items, paymentMethod, customerId, discount, taxRate } = params;
+    if (items.length === 0) return null;
+
+    const subtotal = items.reduce((acc, item) => {
+      let price = item.product.retailPrice;
+      if (item.selectedPriceType === "wholesale") price = item.product.wholesalePrice;
+      if (item.selectedPriceType === "superWholesale") price = item.product.superWholesalePrice;
+      if (item.customPrice !== undefined) price = item.customPrice;
+      return acc + (price * item.quantity);
+    }, 0);
+
+    const afterDiscount = Math.max(0, subtotal - discount);
+    const tax = Number((afterDiscount * taxRate).toFixed(2));
+    const total = Number((afterDiscount + tax).toFixed(2));
+
+    const invoiceNumber = `INV-${Date.now().toString().slice(-6)}`;
+    const customer = state.customers.find(c => c.id === customerId);
+
+    const newSale: Sale = {
+      id: `sale-${Date.now()}`,
+      invoiceNumber,
+      items,
+      subtotal: Number(subtotal.toFixed(2)),
+      discount: Number(discount.toFixed(2)),
+      tax,
+      total,
+      paymentMethod,
+      customerId,
+      customerName: customer?.name,
+      status: OrderStatus.COMPLETED,
+      branchId: state.activeBranchId,
+      userId: state.currentUser.id,
+      userName: state.currentUser.name,
+      timestamp: new Date().toISOString()
+    };
+
+    // Update product quantities & alert triggers
+    const updatedProducts = state.products.map(product => {
+      const cartMatch = items.find(item => item.product.id === product.id);
+      if (cartMatch) {
+        return {
+          ...product,
+          stockQuantity: Math.max(0, product.stockQuantity - cartMatch.quantity)
+        };
+      }
+      return product;
+    });
+
+    // Update Customer loyalty (e.g., 1 loyalty point per 10 currency spent) and debt if deferred
+    const updatedCustomers = state.customers.map(cust => {
+      if (cust.id === customerId) {
+        const pointsEarned = Math.floor(total / 10);
+        const debtAdded = paymentMethod === PaymentMethod.DEFERRED ? total : 0;
+        return {
+          ...cust,
+          loyaltyPoints: cust.loyaltyPoints + pointsEarned,
+          debtAmount: Number((cust.debtAmount + debtAdded).toFixed(2))
+        };
+      }
+      return cust;
+    });
+
+    setState(prev => ({
+      ...prev,
+      products: updatedProducts,
+      customers: updatedCustomers,
+      sales: [newSale, ...prev.sales]
+    }));
+
+    logAction("عملية بيع", `تم إصدار الفاتورة ${invoiceNumber} بمبلغ ${total} دفع: ${paymentMethod}`);
+    return newSale;
+  }, [state.products, state.customers, state.activeBranchId, state.currentUser, logAction]);
+
+  // Expenses & Salary
+  const addExpense = useCallback((expense: Omit<Expense, "id" | "timestamp" | "branchId">) => {
+    const newExpense: Expense = {
+      ...expense,
+      id: `exp-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      branchId: state.activeBranchId
+    };
+    setState(prev => ({
+      ...prev,
+      expenses: [newExpense, ...prev.expenses]
+    }));
+    logAction("تسجيل مصروفات", `تم تسجيل مصروف: ${expense.category} بقيمة ${expense.amount}`);
+  }, [state.activeBranchId, logAction]);
+
+  const addSalaryPayout = useCallback((payout: Omit<SalaryPayout, "id" | "branchId">) => {
+    const newPayout: SalaryPayout = {
+      ...payout,
+      id: `sal-${Date.now()}`,
+      branchId: state.activeBranchId
+    };
+    setState(prev => ({
+      ...prev,
+      salaries: [newPayout, ...prev.salaries]
+    }));
+    logAction("تسجيل مرتبات", `تم صرف مرتب للموظف: ${payout.employeeName} صافي ${payout.baseSalary + payout.bonuses - payout.deductions}`);
+  }, [state.activeBranchId, logAction]);
+
+  // Carts Suspension
+  const suspendCart = useCallback((name: string, items: CartItem[], customerId?: string) => {
+    const newSuspended = {
+      id: `susp-${Date.now()}`,
+      name,
+      items,
+      customerId,
+      timestamp: new Date().toISOString()
+    };
+    setState(prev => ({
+      ...prev,
+      suspendedCarts: [...prev.suspendedCarts, newSuspended]
+    }));
+    logAction("تعليق السلة", `تم تعليق سلة مبيعات: ${name}`);
+  }, [logAction]);
+
+  const resumeCart = useCallback((id: string) => {
+    const match = state.suspendedCarts.find(c => c.id === id);
+    setState(prev => ({
+      ...prev,
+      suspendedCarts: prev.suspendedCarts.filter(c => c.id !== id)
+    }));
+    if (match) {
+      logAction("استرجاع السلة", `تم استرجاع السلة المعلقة: ${match.name}`);
+    }
+    return match;
+  }, [state.suspendedCarts, logAction]);
+
+  // User Management
+  const updateUserRole = useCallback((userId: string, role: UserRole) => {
+    setState(prev => {
+      if (prev.currentUser.id === userId) {
+        return {
+          ...prev,
+          currentUser: { ...prev.currentUser, role },
+          auditLogs: prev.auditLogs // trigger safe
+        };
+      }
+      return prev;
+    });
+    logAction("تحديث صلاحية", `تم تغيير صلاحية الموظف إلى ${role}`);
+  }, [logAction]);
+
+  // Branch Synchronization simulation
+  const syncBranches = useCallback(async () => {
+    setState(prev => ({
+      ...prev,
+      branches: prev.branches.map(b => ({
+        ...b,
+        status: b.id === "branch-dammam" && Math.random() > 0.3 ? "online" : b.status,
+        lastSyncTime: "الآن"
+      }))
+    }));
+    logAction("مزامنة الفروع", "تم مزامنة البيانات والعمليات مع السيرفر الرئيسي بنجاح");
+    return true;
+  }, [logAction]);
+
+  return {
+    state,
+    toggleLanguage,
+    toggleTheme,
+    addProduct,
+    updateProduct,
+    deleteProduct,
+    addCustomer,
+    recordCustomerPayment,
+    addSupplier,
+    recordSupplierPayment,
+    completeCheckout,
+    addExpense,
+    addSalaryPayout,
+    suspendCart,
+    resumeCart,
+    updateUserRole,
+    syncBranches,
+    logAction
+  };
+}

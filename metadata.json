@@ -1,0 +1,6 @@
+{
+  "name": "Xcashme-vpro POS",
+  "description": "Professional full-stack Point of Sale (POS) system with inventory, customer loyalty, reports, and AI assistant.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
