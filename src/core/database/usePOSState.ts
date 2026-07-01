@@ -20,15 +20,15 @@ import {
   Branch,
   User,
   UserRole
-} from "../types/pos";
+} from "../../types/pos";
 
 // High-quality bilingual mock initial data
 const INITIAL_PRODUCTS: Product[] = [
   {
     id: "prod-1",
     barcode: "6281100112233",
-    name: "مياه معدنية 330 مل - Premium Mineral Water 330ml",
-    category: "مشروبات / Beverages",
+    name: "Premium Mineral Water 330ml",
+    category: "  Beverages",
     costPrice: 0.25,
     retailPrice: 0.50,
     wholesalePrice: 0.40,
@@ -41,8 +41,8 @@ const INITIAL_PRODUCTS: Product[] = [
   {
     id: "prod-2",
     barcode: "6281100445566",
-    name: "شوكولاتة داكنة 100غ - Dark Chocolate 100g",
-    category: "حلويات / Confectionery",
+    name: "  Dark Chocolate 100g",
+    category: "  Confectionery",
     costPrice: 1.50,
     retailPrice: 3.00,
     wholesalePrice: 2.50,
@@ -55,8 +55,8 @@ const INITIAL_PRODUCTS: Product[] = [
   {
     id: "prod-3",
     barcode: "6281100998877",
-    name: "زيت زيتون بكر ممتاز 1 لتر - Olive Oil Extra Virgin 1L",
-    category: "مواد غذائية / Groceries",
+    name: "   Olive Oil Extra Virgin 1L",
+    category: "   Groceries",
     costPrice: 6.00,
     retailPrice: 12.00,
     wholesalePrice: 10.00,
@@ -68,8 +68,8 @@ const INITIAL_PRODUCTS: Product[] = [
   {
     id: "prod-4",
     barcode: "6281101223344",
-    name: "بن قهوة عربي 500غ - Arabic Coffee Ground 500g",
-    category: "مواد غذائية / Groceries",
+    name: " Arabic Coffee Ground 500g",
+    category: "Groceries",
     costPrice: 4.50,
     retailPrice: 8.50,
     wholesalePrice: 7.20,
@@ -82,8 +82,8 @@ const INITIAL_PRODUCTS: Product[] = [
   {
     id: "prod-5",
     barcode: "SN-9821849",
-    name: "سماعة رأس لاسلكية برو - Wireless Headphones Pro",
-    category: "إلكترونيات / Electronics",
+    name: "  Wireless Headphones Pro",
+    category: "  Electronics",
     costPrice: 35.00,
     retailPrice: 59.00,
     wholesalePrice: 50.00,
@@ -210,7 +210,80 @@ export function usePOSState() {
     const saved = localStorage.getItem("xcash_pos_state");
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        // Ensure robustness against undefined values in localStorage
+        const sanitizedProducts = (parsed.products || []).map((p: any) => ({
+          ...p,
+          costPrice: typeof p.costPrice === "number" ? p.costPrice : 0,
+          retailPrice: typeof p.retailPrice === "number" ? p.retailPrice : 0,
+          wholesalePrice: typeof p.wholesalePrice === "number" ? p.wholesalePrice : 0,
+          superWholesalePrice: typeof p.superWholesalePrice === "number" ? p.superWholesalePrice : 0,
+          stockQuantity: typeof p.stockQuantity === "number" ? p.stockQuantity : 0,
+          minStockAlert: typeof p.minStockAlert === "number" ? p.minStockAlert : 0,
+          hasExpiry: !!p.hasExpiry,
+        }));
+        
+        const sanitizedCustomers = (parsed.customers || []).map((c: any) => ({
+          ...c,
+          debtAmount: typeof c.debtAmount === "number" ? c.debtAmount : 0,
+          loyaltyPoints: typeof c.loyaltyPoints === "number" ? c.loyaltyPoints : 0,
+        }));
+
+        const sanitizedSuppliers = (parsed.suppliers || []).map((s: any) => ({
+          ...s,
+          debtAmount: typeof s.debtAmount === "number" ? s.debtAmount : 0,
+        }));
+
+        const sanitizedSales = (parsed.sales || []).map((s: any) => ({
+          ...s,
+          subtotal: typeof s.subtotal === "number" ? s.subtotal : 0,
+          discount: typeof s.discount === "number" ? s.discount : 0,
+          tax: typeof s.tax === "number" ? s.tax : 0,
+          total: typeof s.total === "number" ? s.total : 0,
+          items: (s.items || []).map((item: any) => ({
+            ...item,
+            quantity: typeof item.quantity === "number" ? item.quantity : 1,
+            discountAmount: typeof item.discountAmount === "number" ? item.discountAmount : 0,
+            product: item.product ? {
+              ...item.product,
+              costPrice: typeof item.product.costPrice === "number" ? item.product.costPrice : 0,
+              retailPrice: typeof item.product.retailPrice === "number" ? item.product.retailPrice : 0,
+              wholesalePrice: typeof item.product.wholesalePrice === "number" ? item.product.wholesalePrice : 0,
+              superWholesalePrice: typeof item.product.superWholesalePrice === "number" ? item.product.superWholesalePrice : 0,
+              stockQuantity: typeof item.product.stockQuantity === "number" ? item.product.stockQuantity : 0,
+            } : {}
+          }))
+        }));
+
+        const sanitizedExpenses = (parsed.expenses || []).map((e: any) => ({
+          ...e,
+          amount: typeof e.amount === "number" ? e.amount : 0,
+        }));
+
+        const sanitizedSalaries = (parsed.salaries || []).map((s: any) => ({
+          ...s,
+          baseSalary: typeof s.baseSalary === "number" ? s.baseSalary : 0,
+          bonuses: typeof s.bonuses === "number" ? s.bonuses : 0,
+          deductions: typeof s.deductions === "number" ? s.deductions : 0,
+        }));
+
+        return {
+          ...parsed,
+          products: sanitizedProducts,
+          categories: parsed.categories || INITIAL_CATEGORIES,
+          customers: sanitizedCustomers,
+          suppliers: sanitizedSuppliers,
+          sales: sanitizedSales,
+          expenses: sanitizedExpenses,
+          salaries: sanitizedSalaries,
+          auditLogs: parsed.auditLogs || INITIAL_LOGS,
+          branches: parsed.branches || INITIAL_BRANCHES,
+          suspendedCarts: parsed.suspendedCarts || [],
+          currentUser: parsed.currentUser || INITIAL_USER,
+          activeBranchId: parsed.activeBranchId || "branch-riyadh",
+          language: parsed.language || "ar",
+          theme: parsed.theme || "dark"
+        };
       } catch (e) {
         console.error("Failed to parse saved POS state", e);
       }
