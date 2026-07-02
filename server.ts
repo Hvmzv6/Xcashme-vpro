@@ -5,9 +5,12 @@
 
 import express from "express";
 import path from "path";
+import fs from "fs";
+import net from "net";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
 import { createServer as createViteServer } from "vite";
+import initSqlJs from "sql.js";
 
 dotenv.config();
 
@@ -147,6 +150,154 @@ app.post("/api/sync", (req, res) => {
     timestamp: new Date().toISOString(),
     globalSequence: Date.now()
   });
+});
+
+// SQLite Database Persistence Engine (Desktop %APPDATA% or ./data)
+let dbInstance: any = null;
+let sqliteDbPath = "";
+
+async function getSQLiteDatabase() {
+  if (dbInstance) return { db: dbInstance, path: sqliteDbPath };
+  
+  const SQL = await initSqlJs();
+  const dataDir = process.env.USER_DATA_PATH || path.join(process.cwd(), "data");
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+  
+  sqliteDbPath = path.join(dataDir, "xcash_pos.sqlite");
+  
+  if (fs.existsSync(sqliteDbPath)) {
+    const fileBuffer = fs.readFileSync(sqliteDbPath);
+    dbInstance = new SQL.Database(fileBuffer);
+  } else {
+    dbInstance = new SQL.Database();
+  }
+  
+  dbInstance.run(`
+    CREATE TABLE IF NOT EXISTS store_state (
+      id TEXT PRIMARY KEY,
+      json_data TEXT,
+      updated_at TEXT
+    );
+  `);
+  
+  return { db: dbInstance, path: sqliteDbPath };
+}
+
+// Load state from local SQLite
+app.get("/api/db/load", async (req, res) => {
+  try {
+    const { db, path: dbPath } = await getSQLiteDatabase();
+    const result = db.exec("SELECT json_data FROM store_state WHERE id = 'main'");
+    if (result && result.length > 0 && result[0].values.length > 0) {
+      const jsonStr = result[0].values[0][0] as string;
+      return res.json({ status: "success", data: JSON.parse(jsonStr), dbPath });
+    }
+    return res.json({ status: "empty", dbPath });
+  } catch (error: any) {
+    console.error("Error loading SQLite DB:", error);
+    return res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
+// Save state to local SQLite
+app.post("/api/db/save", async (req, res) => {
+  try {
+    const { state } = req.body;
+    if (!state) return res.status(400).json({ error: "Missing state payload" });
+    
+    const { db, path: dbPath } = await getSQLiteDatabase();
+    const jsonStr = JSON.stringify(state);
+    const now = new Date().toISOString();
+    
+    db.run("INSERT OR REPLACE INTO store_state (id, json_data, updated_at) VALUES (?, ?, ?)", [
+      "main",
+      jsonStr,
+      now
+    ]);
+    
+    const binaryArray = db.export();
+    fs.writeFileSync(dbPath, Buffer.from(binaryArray));
+    
+    return res.json({ status: "success", timestamp: now, sizeBytes: binaryArray.length, dbPath });
+  } catch (error: any) {
+    console.error("Error saving SQLite DB:", error);
+    return res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
+// Direct ESC/POS Thermal Receipt Printing API
+app.post("/api/print/thermal", async (req, res) => {
+  try {
+    const { receipt, printerType = "simulated", printerAddress = "192.168.1.100:9100", paperSize = "80mm" } = req.body;
+    if (!receipt) return res.status(400).json({ error: "No receipt payload provided" });
+    
+    const ESC = 0x1B;
+    const GS = 0x1D;
+    const LF = 0x0A;
+    
+    const buffer: number[] = [
+      ESC, 0x40,
+      ESC, 0x61, 0x01,
+      ESC, 0x45, 0x01,
+    ];
+    
+    const storeHeader = `Xcashme-vpro POS (${paperSize})\r\n`;
+    for (let i = 0; i < storeHeader.length; i++) buffer.push(storeHeader.charCodeAt(i));
+    buffer.push(ESC, 0x45, 0x00);
+    
+    const lineStr = "--------------------------------\r\n";
+    for (let i = 0; i < lineStr.length; i++) buffer.push(lineStr.charCodeAt(i));
+    
+    buffer.push(ESC, 0x61, 0x00);
+    const invLine = `Invoice: #${receipt.invoiceNumber || "INV-000"}\r\nDate: ${receipt.timestamp || new Date().toLocaleString()}\r\n`;
+    for (let i = 0; i < invLine.length; i++) buffer.push(invLine.charCodeAt(i));
+    for (let i = 0; i < lineStr.length; i++) buffer.push(lineStr.charCodeAt(i));
+    
+    if (receipt.items && Array.isArray(receipt.items)) {
+      receipt.items.forEach((item: any) => {
+        const itemLine = `${item.product?.name || "Item"} x${item.quantity}  ${(item.product?.retailPrice || 0) * item.quantity} SAR\r\n`;
+        for (let i = 0; i < itemLine.length; i++) buffer.push(itemLine.charCodeAt(i));
+      });
+    }
+    
+    for (let i = 0; i < lineStr.length; i++) buffer.push(lineStr.charCodeAt(i));
+    
+    buffer.push(ESC, 0x45, 0x01);
+    const totalLine = `TOTAL: ${receipt.total || 0} SAR\r\n`;
+    for (let i = 0; i < totalLine.length; i++) buffer.push(totalLine.charCodeAt(i));
+    buffer.push(ESC, 0x45, 0x00);
+    
+    buffer.push(LF, LF, LF);
+    buffer.push(GS, 0x56, 0x41, 0x03);
+    
+    const finalBuffer = Buffer.from(buffer);
+    
+    if (printerType === "network") {
+      const [host, portStr] = printerAddress.split(":");
+      const port = parseInt(portStr || "9100", 10);
+      
+      const client = new net.Socket();
+      client.connect(port, host, () => {
+        client.write(finalBuffer, () => {
+          client.destroy();
+        });
+      });
+      
+      client.on("error", (err) => {
+        console.error("ESC/POS Network Printer Error:", err);
+      });
+      
+      return res.json({ status: "success", mode: "network", bytesSent: finalBuffer.length, target: `${host}:${port}` });
+    }
+    
+    console.log(`[ESC/POS Thermal Print Simulated] Size: ${paperSize}, Bytes formatted: ${finalBuffer.length}`);
+    return res.json({ status: "success", mode: "simulated", bytesFormatted: finalBuffer.length });
+  } catch (error: any) {
+    console.error("Thermal printing error:", error);
+    return res.status(500).json({ status: "error", message: error.message });
+  }
 });
 
 // Serve Vite Assets and SPAs

@@ -306,9 +306,35 @@ export function usePOSState() {
     };
   });
 
-  // Keep localStorage in sync
+  // Load state from local SQLite file on desktop app initialization
+  useEffect(() => {
+    fetch("/api/db/load")
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === "success" && data.data) {
+          setState(prev => ({
+            ...prev,
+            ...data.data
+          }));
+          console.log("[Desktop POS] Loaded database from local SQLite:", data.dbPath);
+        }
+      })
+      .catch(err => {
+        console.warn("[Desktop POS] Local SQLite API not available (running browser-only mode):", err);
+      });
+  }, []);
+
+  // Keep localStorage and desktop SQLite database in sync
   useEffect(() => {
     localStorage.setItem("xcash_pos_state", JSON.stringify(state));
+    // Asynchronously save to desktop SQLite
+    fetch("/api/db/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state })
+    }).catch(() => {
+      // Ignore network errors in offline browser mode
+    });
   }, [state]);
 
   const toggleLanguage = useCallback(() => {

@@ -45,6 +45,7 @@ import { PayrollView } from "./features/payroll/components/PayrollView";
 import { ReportsView } from "./features/reports/components/ReportsView";
 import { SettingsView } from "./features/settings/components/SettingsView";
 import { ReceiptModal } from "./features/checkout/components/ReceiptModal";
+import { useBarcodeScanner } from "./shared/hooks/useBarcodeScanner";
 
 export default function App() {
   const {
@@ -110,6 +111,21 @@ export default function App() {
       setToastMessage(null);
     }, 4000);
   };
+
+  // Hardware USB Wedge Barcode Scanner Listener
+  useBarcodeScanner({
+    onScan: (scannedCode) => {
+      const found = state.products.find(p => p.barcode === scannedCode || p.serialNumber === scannedCode);
+      if (found) {
+        addToCart(found);
+        triggerToast(isAr ? `[مسح سريع] تم إضافة ${found.name} إلى السلة` : `[Hardware Scan] Added ${found.name}`);
+        setBarcodeSuccess(true);
+        setTimeout(() => setBarcodeSuccess(false), 1000);
+      } else {
+        triggerToast(isAr ? `تنبيه: الباركود الممسوح (${scannedCode}) غير مسجل في المخزون` : `Alert: Scanned barcode (${scannedCode}) not in inventory`);
+      }
+    }
+  });
 
   // Barcode Submission Helper
   const handleBarcodeSubmit = (e: React.FormEvent) => {

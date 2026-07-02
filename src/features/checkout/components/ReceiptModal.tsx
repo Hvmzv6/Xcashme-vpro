@@ -147,22 +147,67 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         </div>
 
         {/* physical triggers */}
-        <div className={`p-4 ${styles.well} border-t ${styles.wellBorder} flex justify-end gap-2.5`}>
-          <button
-            onClick={() => {
-              window.print();
-            }}
-            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer shadow-md shadow-indigo-500/10"
-          >
-            <Printer className="w-4 h-4" />
-            <span>طباعة الورقة</span>
-          </button>
-          <button
-            onClick={() => setActiveReceipt(null)}
-            className={`px-4 py-2 ${styles.btnOutline} text-xs font-bold rounded-lg`}
-          >
-            {t.closeReceipt}
-          </button>
+        <div className={`p-4 ${styles.well} border-t ${styles.wellBorder} flex flex-wrap justify-between items-center gap-2.5`}>
+          <div className="flex items-center gap-2 text-[11px]">
+            <span className={styles.textSecondary}>طابعة ESC/POS:</span>
+            <input
+              type="text"
+              id="thermal-printer-ip"
+              defaultValue="192.168.1.100:9100"
+              placeholder="IP / COM Port"
+              className={`w-32 px-2 py-1 text-xs font-mono rounded border ${styles.wellBorder} ${styles.bg} ${styles.textPrimary}`}
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={async () => {
+                const ipInput = (document.getElementById("thermal-printer-ip") as HTMLInputElement)?.value || "192.168.1.100:9100";
+                try {
+                  const res = await fetch("/api/print/thermal", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      receipt: activeReceipt,
+                      printerType: "network",
+                      printerAddress: ipInput,
+                      paperSize: receiptSize
+                    })
+                  });
+                  const data = await res.json();
+                  if (data.status === "success") {
+                    alert(isAr ? `تم إرسال أمر الطباعة الحرارية بنجاح إلى الطابعة (${data.target || ipInput})` : `Thermal print command sent successfully to (${data.target || ipInput})`);
+                  } else {
+                    alert(isAr ? `خطأ في الطباعة: ${data.message}` : `Print error: ${data.message}`);
+                  }
+                } catch (e: any) {
+                  alert(isAr ? `تعذر الاتصال بطابعة ESC/POS الحرارية: ${e.message}` : `Could not connect to thermal printer: ${e.message}`);
+                }
+              }}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer shadow-md shadow-emerald-500/10"
+              title="طباعة مباشرة للطابعة الحرارية ESC/POS"
+            >
+              <Printer className="w-4 h-4" />
+              <span>طباعة حرارية ESC/POS</span>
+            </button>
+
+            <button
+              onClick={() => {
+                window.print();
+              }}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer shadow-md shadow-indigo-500/10"
+            >
+              <Printer className="w-4 h-4" />
+              <span>طباعة نظام</span>
+            </button>
+
+            <button
+              onClick={() => setActiveReceipt(null)}
+              className={`px-3 py-2 ${styles.btnOutline} text-xs font-bold rounded-lg`}
+            >
+              {t.closeReceipt}
+            </button>
+          </div>
         </div>
       </motion.div>
     </div>
