@@ -58,3 +58,11 @@ Physical barcode scanners acting as USB keyboard wedges emit keystrokes at rapid
 Instead of relying strictly on temporary browser `localStorage`, your POS state is permanently backed by an embedded SQLite database file on disk.
 * **Storage Location**: When running inside Electron, the database file `xcash_pos.sqlite` is safely stored inside your operating system's dedicated user data folder (`%APPDATA%/Xcashme-vpro POS/xcash_pos.sqlite` on Windows or `~/Library/Application Support/...` on macOS).
 * **Auto-Sync**: When the POS boots up, `usePOSState` pulls data from `/api/db/load`. Whenever any sale, inventory change, or partner transaction takes place, changes are saved instantly to the local SQLite database via `/api/db/save`.
+
+### 4. Automatic Background Updates (`electron-updater`)
+The application includes automatic background update checks via `electron-updater`:
+* **Background Polling**: Upon launching the packaged application (`.exe` or `.dmg`), `autoUpdater` checks your release repository/server for newer versions.
+* **Seamless Download**: Updates download silently in the background without interrupting cashier checkout operations.
+* **IPC Channels**: Exposed via `window.electronAPI.checkForUpdates()`, `window.electronAPI.installUpdateNow()`, and `window.electronAPI.onUpdateStatus(cb)`.
+* **Configuring Update Server**: To publish updates, add a `"publish"` configuration (such as GitHub Releases, AWS S3, or generic web server URL) inside the `"build"` section of your `package.json`.
+
