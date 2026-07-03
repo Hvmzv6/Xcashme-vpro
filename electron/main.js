@@ -346,15 +346,32 @@ function createMainWindow() {
 
   mainWindow.setMenuBarVisibility(false);
 
-  // Allow time for backend Express initialization before loading window
+  // Robust retry mechanism to wait for Express initialization
+  const loadApp = (attempts = 1) => {
+    if (!mainWindow) return;
+    const targetUrl = `http://localhost:${PORT}`;
+    mainWindow.loadURL(targetUrl).then(() => {
+      console.log(`[Electron POS] Successfully loaded ${targetUrl}`);
+      mainWindow.show();
+    }).catch((err) => {
+      if (attempts < 25) {
+        console.warn(`[Electron POS] Server loading attempt ${attempts} failed (${err.message}). Retrying in 300ms...`);
+        setTimeout(() => loadApp(attempts + 1), 300);
+      } else {
+        console.error(`[Electron POS] Failed to connect to local POS backend after ${attempts} attempts.`);
+        mainWindow.show(); // Show window so user doesn't stay stuck
+      }
+    });
+  };
+
+  setTimeout(() => loadApp(1), 400);
+
+  // Safety net: Ensure window always shows within 3.5 seconds
   setTimeout(() => {
-    if (mainWindow) {
-      mainWindow.loadURL(`http://localhost:${PORT}`);
-      mainWindow.once('ready-to-show', () => {
-        mainWindow.show();
-      });
+    if (mainWindow && !mainWindow.isVisible()) {
+      mainWindow.show();
     }
-  }, 1200);
+  }, 3500);
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http:') || url.startsWith('https:')) {

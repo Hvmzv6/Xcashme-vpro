@@ -66,3 +66,34 @@ The application includes automatic background update checks via `electron-update
 * **IPC Channels**: Exposed via `window.electronAPI.checkForUpdates()`, `window.electronAPI.installUpdateNow()`, and `window.electronAPI.onUpdateStatus(cb)`.
 * **Configuring Update Server**: To publish updates, add a `"publish"` configuration (such as GitHub Releases, AWS S3, or generic web server URL) inside the `"build"` section of your `package.json`.
 
+---
+
+## 🛠️ Resolved Issues: Blank Navy Blue Screen & Standard Installer Setup
+
+We identified and permanently fixed the two issues you experienced when installing the `.exe`:
+
+### 1. Why Did the Installed App Show an Empty Navy Blue Screen?
+When packaged into an installer (`app.asar`), three critical differences caused the blank screen:
+* **Missing Backend Dependencies in ASAR (`node_modules`)**: By default, specifying a custom `files` list in `package.json` omitted `node_modules`. Because `server.cjs` requires external packages (`express`, `sql.js`, `dotenv`), the backend process crashed immediately upon launch (`Cannot find module 'express'`).
+* **ASAR Static Asset Path Resolution**: In `server.ts`, `express.static` previously looked for `process.cwd() + "/dist"`. When installed in `C:\Program Files\Xcashme-vpro POS`, that folder does not exist on the file system because all compiled files reside inside `resources/app.asar/dist`. Express returned 404 errors for `index.html` and assets.
+* **Startup Race Condition**: Electron attempted to load `http://localhost:3000` immediately before Express completed booting inside the child process.
+
+**The Fixes Applied**:
+* Added `"node_modules/**/*"` to `"files"` in `package.json` so all runtime server dependencies are included.
+* Updated `server.ts` to dynamically resolve static assets relative to `__dirname` (`resources/app.asar/dist`) when running inside the production ASAR archive.
+* Added a recursive retry loader (`loadApp`) in `electron/main.js` that checks for connection readiness up to 25 attempts with safe timeouts.
+
+### 2. Standard Step-by-Step Windows Installation Wizard
+Previously, `electron-builder` defaulted to a "One-Click Silent Installer" (`oneClick: true`), which flashes a loading bar and installs instantly without user interaction or folder prompts.
+We have upgraded `package.json` with standard enterprise NSIS wizard settings:
+```json
+"nsis": {
+  "oneClick": false,
+  "allowToChangeInstallationDirectory": true,
+  "createDesktopShortcut": true,
+  "createStartMenuShortcut": true,
+  "shortcutName": "Xcashme-vpro POS"
+}
+```
+Now, when you run `npm run electron:build`, the resulting installer (`Xcashme-vpro POS Setup 1.0.0.exe`) provides a standard multi-step Windows setup wizard allowing you to choose the installation folder and confirm desktop/Start Menu shortcuts.
+

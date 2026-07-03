@@ -53,8 +53,16 @@
       "dist/**/*",
       "electron/**/*",
       "electron-main.cjs",
+      "node_modules/**/*",
       "package.json"
     ],
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Xcashme-vpro POS"
+    },
     "win": {
       "target": [
         "nsis"

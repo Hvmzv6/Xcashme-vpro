@@ -309,7 +309,10 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
+    const distPath = fs.existsSync(path.join(__dirname, "dist"))
+      ? path.join(__dirname, "dist")
+      : __dirname;
+    console.log(`[POS Server] Serving static production files from: ${distPath}`);
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
