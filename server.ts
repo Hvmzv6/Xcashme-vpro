@@ -15,7 +15,7 @@ import initSqlJs from "sql.js";
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 app.use(express.json());
 
@@ -319,8 +319,17 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Xcashme-vpro backend running on http://0.0.0.0:${PORT}`);
+  });
+
+  server.on("error", (err: any) => {
+    if (err.code === "EADDRINUSE") {
+      console.warn(`[POS Server] Port ${PORT} is already in use. Retrying on port ${PORT + 1}...`);
+      app.listen(PORT + 1, "0.0.0.0");
+    } else {
+      console.error("[POS Server] Failed to bind backend server:", err);
+    }
   });
 }
 

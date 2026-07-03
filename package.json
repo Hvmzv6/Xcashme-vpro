@@ -56,6 +56,10 @@
       "node_modules/**/*",
       "package.json"
     ],
+    "asarUnpack": [
+      "dist/**/*",
+      "node_modules/**/*"
+    ],
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,

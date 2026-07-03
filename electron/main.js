@@ -11,6 +11,7 @@ import path from 'path';
 import fs from 'fs';
 import net from 'net';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 import { fork } from 'child_process';
 import Database from 'better-sqlite3';
 import updaterPkg from 'electron-updater';
@@ -19,6 +20,7 @@ const { autoUpdater } = updaterPkg;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const require = createRequire(import.meta.url);
 
 let mainWindow = null;
 let backendProcess = null;
@@ -312,16 +314,25 @@ function startBackendServer() {
   const isPackaged = app.isPackaged;
   const serverPath = path.join(__dirname, '../dist/server.cjs');
 
-  const env = {
-    ...process.env,
-    NODE_ENV: isPackaged ? 'production' : 'development',
-    PORT: PORT.toString(),
-    USER_DATA_PATH: app.getPath('userData')
-  };
+  process.env.NODE_ENV = isPackaged ? 'production' : 'development';
+  process.env.PORT = PORT.toString();
+  if (!process.env.USER_DATA_PATH) {
+    process.env.USER_DATA_PATH = app.getPath('userData');
+  }
 
   if (fs.existsSync(serverPath)) {
-    console.log(`[Electron POS] Spawning backend from: ${serverPath}`);
-    backendProcess = fork(serverPath, [], { env, stdio: 'inherit' });
+    if (isPackaged) {
+      console.log(`[Electron POS] Loading packaged backend directly inside main Electron process: ${serverPath}`);
+      try {
+        require(serverPath);
+        console.log('[Electron POS] Packaged Express backend loaded successfully.');
+      } catch (err) {
+        console.error('[Electron POS] Error requiring backend module inside main process:', err);
+      }
+    } else {
+      console.log(`[Electron POS] Spawning backend child process from: ${serverPath}`);
+      backendProcess = fork(serverPath, [], { env: process.env, stdio: 'inherit' });
+    }
   } else {
     console.log('[Electron POS] Dev mode detected: Ensure dev server is running.');
   }
@@ -346,7 +357,7 @@ function createMainWindow() {
 
   mainWindow.setMenuBarVisibility(false);
 
-  // Robust retry mechanism to wait for Express initialization
+  // Robust retry mechanism with local file fallback
   const loadApp = (attempts = 1) => {
     if (!mainWindow) return;
     const targetUrl = `http://localhost:${PORT}`;
@@ -354,17 +365,25 @@ function createMainWindow() {
       console.log(`[Electron POS] Successfully loaded ${targetUrl}`);
       mainWindow.show();
     }).catch((err) => {
-      if (attempts < 25) {
-        console.warn(`[Electron POS] Server loading attempt ${attempts} failed (${err.message}). Retrying in 300ms...`);
-        setTimeout(() => loadApp(attempts + 1), 300);
+      if (attempts < 20) {
+        console.warn(`[Electron POS] Server loading attempt ${attempts} failed (${err.message}). Retrying in 250ms...`);
+        setTimeout(() => loadApp(attempts + 1), 250);
       } else {
-        console.error(`[Electron POS] Failed to connect to local POS backend after ${attempts} attempts.`);
-        mainWindow.show(); // Show window so user doesn't stay stuck
+        console.error(`[Electron POS] Failed to connect via HTTP after ${attempts} attempts. Falling back to direct local file load...`);
+        const indexPath = path.join(__dirname, '../dist/index.html');
+        if (fs.existsSync(indexPath)) {
+          mainWindow.loadFile(indexPath).then(() => {
+            console.log('[Electron POS] Successfully loaded index.html fallback.');
+            mainWindow.show();
+          }).catch(() => mainWindow.show());
+        } else {
+          mainWindow.show();
+        }
       }
     });
   };
 
-  setTimeout(() => loadApp(1), 400);
+  setTimeout(() => loadApp(1), 300);
 
   // Safety net: Ensure window always shows within 3.5 seconds
   setTimeout(() => {

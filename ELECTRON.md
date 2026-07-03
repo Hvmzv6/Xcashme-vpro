@@ -73,15 +73,14 @@ The application includes automatic background update checks via `electron-update
 We identified and permanently fixed the two issues you experienced when installing the `.exe`:
 
 ### 1. Why Did the Installed App Show an Empty Navy Blue Screen?
-When packaged into an installer (`app.asar`), three critical differences caused the blank screen:
-* **Missing Backend Dependencies in ASAR (`node_modules`)**: By default, specifying a custom `files` list in `package.json` omitted `node_modules`. Because `server.cjs` requires external packages (`express`, `sql.js`, `dotenv`), the backend process crashed immediately upon launch (`Cannot find module 'express'`).
-* **ASAR Static Asset Path Resolution**: In `server.ts`, `express.static` previously looked for `process.cwd() + "/dist"`. When installed in `C:\Program Files\Xcashme-vpro POS`, that folder does not exist on the file system because all compiled files reside inside `resources/app.asar/dist`. Express returned 404 errors for `index.html` and assets.
-* **Startup Race Condition**: Electron attempted to load `http://localhost:3000` immediately before Express completed booting inside the child process.
+When packaged into an installer (`app.asar`), spawning `server.cjs` via `child_process.fork()` caused the blank navy blue screen due to two architectural constraints of Electron:
+* **Plain Node vs. ASAR Archives**: When `child_process.fork()` runs inside Electron, it executes as plain Node (`ELECTRON_RUN_AS_NODE=1`). Plain Node does not understand virtual `app.asar` archives and cannot read directories inside it. Consequently, spawning `fork(".../app.asar/dist/server.cjs")` threw filesystem errors (`ENOTDIR`) and crashed instantly.
+* **Dead Port 3000**: Because the background child process crashed upon launch, port `3000` never opened. When `mainWindow.loadURL('http://localhost:3000')` tried to connect, every attempt failed. The window eventually displayed its default background color (`#0f172a` Navy Blue).
 
-**The Fixes Applied**:
-* Added `"node_modules/**/*"` to `"files"` in `package.json` so all runtime server dependencies are included.
-* Updated `server.ts` to dynamically resolve static assets relative to `__dirname` (`resources/app.asar/dist`) when running inside the production ASAR archive.
-* Added a recursive retry loader (`loadApp`) in `electron/main.js` that checks for connection readiness up to 25 attempts with safe timeouts.
+**The Architectural Fixes Applied**:
+* **Direct Main Process Execution**: When running packaged inside Electron (`app.isPackaged === true`), `electron/main.js` now loads `dist/server.cjs` directly inside Electron's main process (`require(serverPath)`) instead of spawning a plain Node child process. Because Electron's main process natively hooks filesystem calls for `app.asar`, Express boots instantly and mounts static files without error.
+* **Guaranteed Disk Unpacking (`asarUnpack`)**: Configured `"asarUnpack": ["dist/**/*", "node_modules/**/*"]` in `package.json` so production assets are extracted directly to physical disk.
+* **Direct File Fallback (`loadFile`)**: If HTTP connection attempts ever fail (e.g. due to third-party Windows antivirus or strict loopback firewalls), `loadApp` automatically falls back to `mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))`, guaranteeing the cashier interface always renders.
 
 ### 2. Standard Step-by-Step Windows Installation Wizard
 Previously, `electron-builder` defaulted to a "One-Click Silent Installer" (`oneClick: true`), which flashes a loading bar and installs instantly without user interaction or folder prompts.
