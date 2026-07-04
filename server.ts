@@ -15,7 +15,7 @@ import initSqlJs from "sql.js";
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const PORT = 3000;
 
 app.use(express.json());
 
@@ -141,13 +141,18 @@ Rules:
   }
 });
 
-// Branch Sync Simulation API
+// Branch Sync Simulation & Offline Queue API
 app.post("/api/sync", (req, res) => {
-  const { branchId, localEvents } = req.body;
-  console.log(`Received ${localEvents?.length || 0} events from branch: ${branchId}`);
+  const { branchId, localEvents, actionType, payload, timestamp } = req.body;
+  if (actionType) {
+    console.log(`[POS Server Sync] Processed offline queued action: [${actionType}] at ${timestamp}`);
+  } else {
+    console.log(`[POS Server Sync] Received batch sync (${localEvents?.length || 0} events) from branch: ${branchId || "Main"}`);
+  }
   return res.json({
     status: "success",
     timestamp: new Date().toISOString(),
+    syncedAction: actionType || "BATCH",
     globalSequence: Date.now()
   });
 });
@@ -302,16 +307,20 @@ app.post("/api/print/thermal", async (req, res) => {
 
 // Serve Vite Assets and SPAs
 async function startServer() {
-  if (process.env.NODE_ENV !== "production") {
+  const isProdOrCompiled = process.env.NODE_ENV === "production" || process.env.IS_ELECTRON === "true" || __filename.endsWith(".cjs") || __filename.endsWith(".js");
+  const distPath = fs.existsSync(path.join(__dirname, "dist"))
+    ? path.join(__dirname, "dist")
+    : __dirname;
+  const hasDistIndex = fs.existsSync(path.join(distPath, "index.html"));
+
+  if (!isProdOrCompiled && !hasDistIndex && process.env.NODE_ENV !== "production") {
+    console.log("[POS Server] Starting Vite middleware mode for development...");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa"
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = fs.existsSync(path.join(__dirname, "dist"))
-      ? path.join(__dirname, "dist")
-      : __dirname;
     console.log(`[POS Server] Serving static production files from: ${distPath}`);
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
@@ -324,12 +333,7 @@ async function startServer() {
   });
 
   server.on("error", (err: any) => {
-    if (err.code === "EADDRINUSE") {
-      console.warn(`[POS Server] Port ${PORT} is already in use. Retrying on port ${PORT + 1}...`);
-      app.listen(PORT + 1, "0.0.0.0");
-    } else {
-      console.error("[POS Server] Failed to bind backend server:", err);
-    }
+    console.error(`[POS Server] Server error on port ${PORT}:`, err.message);
   });
 }
 

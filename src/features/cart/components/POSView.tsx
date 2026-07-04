@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from "react";
-import { motion } from "motion/react";
-import { Search, ShoppingCart, Trash2, Minus, Plus, Printer, AlertTriangle } from "lucide-react";
+import React, { useState } from "react";
+import { motion, AnimatePresence } from "motion/react";
+import { Search, ShoppingCart, Trash2, Minus, Plus, Printer, AlertTriangle, Lock, UserPlus, X } from "lucide-react";
 import { Product, CartItem, PaymentMethod, POSState } from "../../../types/pos";
+import { Permission, hasPermission } from "../../../core/security/rbac";
 
 interface POSViewProps {
   state: POSState;
@@ -35,6 +36,8 @@ interface POSViewProps {
   isAr: boolean;
   isDark: boolean;
   filteredProducts: Product[];
+  onTriggerPinAuth?: (titleAr: string, titleEn: string, onSuccess: (role: UserRole) => void) => void;
+  addCustomer?: (customer: any) => any;
 }
 
 export const POSView: React.FC<POSViewProps> = ({
@@ -63,8 +66,33 @@ export const POSView: React.FC<POSViewProps> = ({
   styles,
   isAr,
   isDark,
-  filteredProducts
+  filteredProducts,
+  onTriggerPinAuth,
+  addCustomer
 }) => {
+  const [showQuickAddCustomer, setShowQuickAddCustomer] = useState(false);
+  const [quickName, setQuickName] = useState("");
+  const [quickPhone, setQuickPhone] = useState("");
+
+  const handleQuickAddSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickName.trim() || !quickPhone.trim()) return;
+    if (addCustomer) {
+      const newCust = addCustomer({
+        name: quickName.trim(),
+        phone: quickPhone.trim(),
+        email: "",
+        notes: isAr ? "إضافة سريعة من شاشة نقطة البيع" : "Quick add from POS checkout"
+      });
+      if (newCust && newCust.id) {
+        setSelectedCustomerId(newCust.id);
+      }
+    }
+    setQuickName("");
+    setQuickPhone("");
+    setShowQuickAddCustomer(false);
+  };
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
       
@@ -200,15 +228,40 @@ export const POSView: React.FC<POSViewProps> = ({
 
                   <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                     {/* Price Type Selector */}
-                    <select
-                      value={item.selectedPriceType}
-                      onChange={(e) => updateCartPriceType(item.product.id, e.target.value as any)}
-                      className={`${styles.inputSecondary} rounded-lg px-2 py-1 text-[11px]`}
-                    >
-                      <option value="retail">{t.retail} ({item.product.retailPrice})</option>
-                      <option value="wholesale">{t.wholesale} ({item.product.wholesalePrice})</option>
-                      <option value="superWholesale">{t.superWholesale} ({item.product.superWholesalePrice})</option>
-                    </select>
+                    <div className="flex items-center gap-1">
+                      <select
+                        value={item.selectedPriceType}
+                        disabled={!hasPermission(state.currentUser.role, Permission.CHANGE_PRICE_TIER)}
+                        onChange={(e) => updateCartPriceType(item.product.id, e.target.value as any)}
+                        className={`${styles.inputSecondary} rounded-lg px-2 py-1 text-[11px] ${!hasPermission(state.currentUser.role, Permission.CHANGE_PRICE_TIER) ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        title={!hasPermission(state.currentUser.role, Permission.CHANGE_PRICE_TIER) ? (isAr ? 'تغيير فئة السعر يتطلب صلاحية مدير' : 'Changing price tier requires Manager role') : undefined}
+                      >
+                        <option value="retail">{t.retail} ({item.product.retailPrice})</option>
+                        <option value="wholesale">{t.wholesale} ({item.product.wholesalePrice})</option>
+                        <option value="superWholesale">{t.superWholesale} ({item.product.superWholesalePrice})</option>
+                      </select>
+                      {!hasPermission(state.currentUser.role, Permission.CHANGE_PRICE_TIER) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onTriggerPinAuth) {
+                              onTriggerPinAuth(
+                                "تخطي حجب تعديل فئة السعر",
+                                "Authorize Price Tier Override",
+                                (role) => {
+                                  // Re-trigger update after role upgrade
+                                  updateCartPriceType(item.product.id, "wholesale");
+                                }
+                              );
+                            }
+                          }}
+                          className="p-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-colors cursor-pointer"
+                          title={isAr ? "انقر لإدخال رمز المشرف وفتح التعديل" : "Click to enter supervisor PIN"}
+                        >
+                          <Lock className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
 
                     {/* Quantity Adjuster */}
                     <div className={`flex items-center gap-1.5 ${styles.inputSecondary} p-0.5 rounded-lg border`}>
@@ -241,20 +294,40 @@ export const POSView: React.FC<POSViewProps> = ({
         <div className={`border-t ${styles.wellBorder} pt-3 space-y-3.5 text-sm`}>
           
           {/* Select Customer */}
-          <div className="space-y-1">
-            <label className={`text-xs ${styles.textSecondary}`}>{t.customerSelect}</label>
-            <select
-              value={selectedCustomerId}
-              onChange={(e) => setSelectedCustomerId(e.target.value)}
-              className={`w-full ${styles.input} rounded-xl px-3 py-2 text-xs`}
-            >
-              <option value="">{t.noCustomer}</option>
-              {state.customers.map(cust => (
-                <option key={cust.id} value={cust.id}>
-                  {cust.name} ({t.loyaltyPoints}: {cust.loyaltyPoints})
-                </option>
-              ))}
-            </select>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className={`text-xs font-semibold ${styles.textSecondary}`}>{t.customerSelect}</label>
+              <button
+                type="button"
+                onClick={() => setShowQuickAddCustomer(true)}
+                className="text-[11px] font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors cursor-pointer"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>{isAr ? "+ عميل سريع" : "+ Quick Add"}</span>
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedCustomerId}
+                onChange={(e) => setSelectedCustomerId(e.target.value)}
+                className={`flex-1 ${styles.input} rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:border-indigo-500`}
+              >
+                <option value="">{t.noCustomer}</option>
+                {state.customers.map(cust => (
+                  <option key={cust.id} value={cust.id}>
+                    {cust.name} ({t.loyaltyPoints}: {cust.loyaltyPoints})
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => setShowQuickAddCustomer(true)}
+                title={isAr ? "إضافة عميل جديد سريعاً" : "Quick Add Customer"}
+                className="p-2.5 rounded-xl bg-indigo-600/15 hover:bg-indigo-600/25 border border-indigo-500/30 text-indigo-400 flex items-center justify-center shrink-0 transition-colors cursor-pointer"
+              >
+                <UserPlus className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
           {/* Select Payment Method */}
@@ -298,13 +371,36 @@ export const POSView: React.FC<POSViewProps> = ({
             </div>
 
             <div className={`flex justify-between items-center text-xs ${styles.textSecondary}`}>
-              <span>{t.discount}:</span>
+              <span className="flex items-center gap-1">
+                <span>{t.discount}:</span>
+                {!hasPermission(state.currentUser.role, Permission.APPLY_HEAVY_DISCOUNT) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onTriggerPinAuth) {
+                        onTriggerPinAuth(
+                          "صلاحية تطبيق الخصم المالي اليدوي",
+                          "Authorize Manual Financial Discount",
+                          (role) => {
+                            // Upgrades session so discount input is unlocked
+                          }
+                        );
+                      }
+                    }}
+                    className="p-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-colors cursor-pointer"
+                    title={isAr ? "انقر لإدخال رمز المشرف وفتح الخصم" : "Click to enter supervisor PIN to unlock discount"}
+                  >
+                    <Lock className="w-3 h-3" />
+                  </button>
+                )}
+              </span>
               <div className="flex items-center gap-1.5">
                 <input
                   type="number"
                   value={overallDiscount}
+                  disabled={!hasPermission(state.currentUser.role, Permission.APPLY_HEAVY_DISCOUNT)}
                   onChange={(e) => setOverallDiscount(Number(e.target.value))}
-                  className={`w-16 ${styles.inputSecondary} rounded px-1.5 py-0.5 text-center text-xs focus:outline-none`}
+                  className={`w-16 ${styles.inputSecondary} rounded px-1.5 py-0.5 text-center text-xs focus:outline-none ${!hasPermission(state.currentUser.role, Permission.APPLY_HEAVY_DISCOUNT) ? 'opacity-60 cursor-not-allowed' : ''}`}
                 />
                 <span>$</span>
               </div>
@@ -351,6 +447,91 @@ export const POSView: React.FC<POSViewProps> = ({
         </div>
 
       </div>
+
+      {/* Quick Add Customer Modal */}
+      <AnimatePresence>
+        {showQuickAddCustomer && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className={`w-full max-w-md ${styles.card} rounded-3xl border border-indigo-500/30 shadow-2xl overflow-hidden`}
+            >
+              <div className="p-4 border-b border-slate-700/60 flex items-center justify-between bg-indigo-500/10">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30">
+                    <UserPlus className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-sm text-slate-100">
+                      {isAr ? "إضافة عميل سريع" : "Quick Add Customer"}
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      {isAr ? "تسجيل بيانات العميل على الفور أثناء الفاتورة" : "Register customer on the fly during transaction"}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowQuickAddCustomer(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleQuickAddSubmit} className="p-5 space-y-4">
+                <div>
+                  <label className={`text-xs font-semibold ${styles.textSecondary} block mb-1.5`}>
+                    {isAr ? "اسم العميل الكامل *" : "Full Customer Name *"}
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder={isAr ? "مثال: أحمد محمد" : "e.g. John Doe"}
+                    value={quickName}
+                    onChange={(e) => setQuickName(e.target.value)}
+                    className={`w-full ${styles.input} rounded-xl px-3.5 py-2.5 text-xs focus:outline-none focus:border-indigo-500`}
+                    autoFocus
+                  />
+                </div>
+
+                <div>
+                  <label className={`text-xs font-semibold ${styles.textSecondary} block mb-1.5`}>
+                    {isAr ? "رقم الهاتف *" : "Phone Number *"}
+                  </label>
+                  <input
+                    type="tel"
+                    required
+                    placeholder={isAr ? "مثال: 0501234567" : "e.g. +966501234567"}
+                    value={quickPhone}
+                    onChange={(e) => setQuickPhone(e.target.value)}
+                    className={`w-full ${styles.input} rounded-xl px-3.5 py-2.5 text-xs font-mono focus:outline-none focus:border-indigo-500`}
+                  />
+                </div>
+
+                <div className="pt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowQuickAddCustomer(false)}
+                    className={`flex-1 py-2.5 rounded-xl text-xs font-bold ${styles.btnOutline}`}
+                  >
+                    {isAr ? "إلغاء" : "Cancel"}
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-md transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    <span>{isAr ? "حفظ واختيار العميل" : "Save & Select"}</span>
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

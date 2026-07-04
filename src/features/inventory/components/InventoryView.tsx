@@ -14,6 +14,7 @@ interface InventoryViewProps {
   isAr: boolean;
   isDark: boolean;
   addProduct: (product: any) => void;
+  addProductsBulk?: (products: any[]) => void;
   updateProduct: (id: string, updated: Partial<Product>) => void;
   deleteProduct: (id: string) => void;
   triggerToast: (msg: string) => void;
@@ -29,6 +30,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   isAr,
   isDark,
   addProduct,
+  addProductsBulk,
   updateProduct,
   deleteProduct,
   triggerToast,
@@ -140,9 +142,13 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const handleBulkImport = () => {
     const validRows = csvRecords.filter(r => r.valid);
     if (validRows.length === 0) return;
-    validRows.forEach(row => {
-      addProduct(row.data);
-    });
+    if (addProductsBulk) {
+      addProductsBulk(validRows.map(r => r.data));
+    } else {
+      validRows.forEach(row => {
+        addProduct(row.data);
+      });
+    }
     triggerToast(isAr ? `تم استيراد ${validRows.length} منتج بنجاح في رصيد المخزن` : `Successfully imported ${validRows.length} products`);
     setCsvRecords([]);
     setShowCsvModal(false);

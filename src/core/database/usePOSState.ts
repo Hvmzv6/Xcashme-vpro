@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useOfflineSyncQueue } from "./useOfflineSyncQueue";
 import {
   POSState,
   Product,
@@ -22,13 +23,18 @@ import {
   UserRole
 } from "../../types/pos";
 
+// Generate guaranteed unique IDs across rapid loops and bulk operations
+const generateUniqueId = (prefix: string): string => {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+};
+
 // High-quality bilingual mock initial data
 const INITIAL_PRODUCTS: Product[] = [
   {
     id: "prod-1",
     barcode: "6281100112233",
     name: "Premium Mineral Water 330ml",
-    category: "  Beverages",
+    category: "Beverages",
     costPrice: 0.25,
     retailPrice: 0.50,
     wholesalePrice: 0.40,
@@ -41,8 +47,8 @@ const INITIAL_PRODUCTS: Product[] = [
   {
     id: "prod-2",
     barcode: "6281100445566",
-    name: "  Dark Chocolate 100g",
-    category: "  Confectionery",
+    name: "Dark Chocolate 100g",
+    category: "Confectionery",
     costPrice: 1.50,
     retailPrice: 3.00,
     wholesalePrice: 2.50,
@@ -55,8 +61,8 @@ const INITIAL_PRODUCTS: Product[] = [
   {
     id: "prod-3",
     barcode: "6281100998877",
-    name: "   Olive Oil Extra Virgin 1L",
-    category: "   Groceries",
+    name: "Olive Oil Extra Virgin 1L",
+    category: "Groceries",
     costPrice: 6.00,
     retailPrice: 12.00,
     wholesalePrice: 10.00,
@@ -68,7 +74,7 @@ const INITIAL_PRODUCTS: Product[] = [
   {
     id: "prod-4",
     barcode: "6281101223344",
-    name: " Arabic Coffee Ground 500g",
+    name: "Arabic Coffee Ground 500g",
     category: "Groceries",
     costPrice: 4.50,
     retailPrice: 8.50,
@@ -82,8 +88,8 @@ const INITIAL_PRODUCTS: Product[] = [
   {
     id: "prod-5",
     barcode: "SN-9821849",
-    name: "  Wireless Headphones Pro",
-    category: "  Electronics",
+    name: "Wireless Headphones Pro",
+    category: "Electronics",
     costPrice: 35.00,
     retailPrice: 59.00,
     wholesalePrice: 50.00,
@@ -205,23 +211,40 @@ const INITIAL_LOGS: AuditLog[] = [
   { id: "log-1", userId: "user-active", userName: "حمزة الصفصفي", userRole: UserRole.ADMIN, action: "تسجيل الدخول / Login", details: "تم الدخول بنجاح للنظام من فرع الرياض", timestamp: "2026-06-29T17:03:00-07:00", branchId: "branch-riyadh" }
 ];
 
+const INITIAL_ROLE_PINS: Record<UserRole, string> = {
+  [UserRole.ADMIN]: "9999",
+  [UserRole.MANAGER]: "1234",
+  [UserRole.CASHIER]: "0000"
+};
+
 export function usePOSState() {
+  const offlineSync = useOfflineSyncQueue();
+
   const [state, setState] = useState<POSState>(() => {
     const saved = localStorage.getItem("xcash_pos_state");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Ensure robustness against undefined values in localStorage
-        const sanitizedProducts = (parsed.products || []).map((p: any) => ({
-          ...p,
-          costPrice: typeof p.costPrice === "number" ? p.costPrice : 0,
-          retailPrice: typeof p.retailPrice === "number" ? p.retailPrice : 0,
-          wholesalePrice: typeof p.wholesalePrice === "number" ? p.wholesalePrice : 0,
-          superWholesalePrice: typeof p.superWholesalePrice === "number" ? p.superWholesalePrice : 0,
-          stockQuantity: typeof p.stockQuantity === "number" ? p.stockQuantity : 0,
-          minStockAlert: typeof p.minStockAlert === "number" ? p.minStockAlert : 0,
-          hasExpiry: !!p.hasExpiry,
-        }));
+        // Ensure robustness against undefined values in localStorage and deduplicate duplicate product IDs
+        const seenIds = new Set<string>();
+        const sanitizedProducts = (parsed.products || []).map((p: any, idx: number) => {
+          let id = p.id || `prod-${idx}`;
+          if (seenIds.has(id)) {
+            id = `${id}-${idx}-${Math.random().toString(36).substring(2, 6)}`;
+          }
+          seenIds.add(id);
+          return {
+            ...p,
+            id,
+            costPrice: typeof p.costPrice === "number" ? p.costPrice : 0,
+            retailPrice: typeof p.retailPrice === "number" ? p.retailPrice : 0,
+            wholesalePrice: typeof p.wholesalePrice === "number" ? p.wholesalePrice : 0,
+            superWholesalePrice: typeof p.superWholesalePrice === "number" ? p.superWholesalePrice : 0,
+            stockQuantity: typeof p.stockQuantity === "number" ? p.stockQuantity : 0,
+            minStockAlert: typeof p.minStockAlert === "number" ? p.minStockAlert : 0,
+            hasExpiry: !!p.hasExpiry,
+          };
+        });
         
         const sanitizedCustomers = (parsed.customers || []).map((c: any) => ({
           ...c,
@@ -282,7 +305,8 @@ export function usePOSState() {
           currentUser: parsed.currentUser || INITIAL_USER,
           activeBranchId: parsed.activeBranchId || "branch-riyadh",
           language: parsed.language || "ar",
-          theme: parsed.theme || "dark"
+          theme: parsed.theme || "dark",
+          rolePins: parsed.rolePins || INITIAL_ROLE_PINS
         };
       } catch (e) {
         console.error("Failed to parse saved POS state", e);
@@ -302,7 +326,8 @@ export function usePOSState() {
       currentUser: INITIAL_USER,
       activeBranchId: "branch-riyadh",
       language: "ar",
-      theme: "dark"
+      theme: "dark",
+      rolePins: INITIAL_ROLE_PINS
     };
   });
 
@@ -312,10 +337,22 @@ export function usePOSState() {
       .then(res => res.json())
       .then(data => {
         if (data.status === "success" && data.data) {
-          setState(prev => ({
-            ...prev,
-            ...data.data
-          }));
+          setState(prev => {
+            const seenIds = new Set<string>();
+            const dedupedProducts = (data.data.products || []).map((p: any, idx: number) => {
+              let id = p.id || `prod-${idx}`;
+              if (seenIds.has(id)) {
+                id = `${id}-${idx}-${Math.random().toString(36).substring(2, 6)}`;
+              }
+              seenIds.add(id);
+              return { ...p, id };
+            });
+            return {
+              ...prev,
+              ...data.data,
+              products: dedupedProducts
+            };
+          });
           console.log("[Desktop POS] Loaded database from local SQLite:", data.dbPath);
         }
       })
@@ -354,7 +391,7 @@ export function usePOSState() {
   // Log action helper
   const logAction = useCallback((action: string, details: string) => {
     const newLog: AuditLog = {
-      id: `log-${Date.now()}`,
+      id: generateUniqueId("log"),
       userId: state.currentUser.id,
       userName: state.currentUser.name,
       userRole: state.currentUser.role,
@@ -373,13 +410,37 @@ export function usePOSState() {
   const addProduct = useCallback((product: Omit<Product, "id">) => {
     const newProduct: Product = {
       ...product,
-      id: `prod-${Date.now()}`
+      id: generateUniqueId("prod")
     };
     setState(prev => ({
       ...prev,
       products: [newProduct, ...prev.products]
     }));
     logAction("إضافة منتج", `تم إضافة المنتج: ${newProduct.name} بسعر قطاعي ${newProduct.retailPrice}`);
+  }, [logAction]);
+
+  const addProductsBulk = useCallback((productsList: Omit<Product, "id">[]) => {
+    if (productsList.length === 0) return;
+    const newProducts: Product[] = productsList.map((product, idx) => ({
+      ...product,
+      id: generateUniqueId(`prod-${idx}`)
+    }));
+    setState(prev => {
+      const seen = new Set(prev.products.map(p => p.id));
+      const dedupedNew = newProducts.map((p, idx) => {
+        let id = p.id;
+        if (seen.has(id)) {
+          id = generateUniqueId(`prod-dup-${idx}`);
+        }
+        seen.add(id);
+        return { ...p, id };
+      });
+      return {
+        ...prev,
+        products: [...dedupedNew, ...prev.products]
+      };
+    });
+    logAction("استيراد منتجات جماعي", `تم استيراد ${productsList.length} منتج دفعة واحدة عبر ملف CSV`);
   }, [logAction]);
 
   const updateProduct = useCallback((id: string, updated: Partial<Product>) => {
@@ -403,8 +464,9 @@ export function usePOSState() {
   // Customer Operations
   const addCustomer = useCallback((customer: Omit<Customer, "id" | "branchId" | "loyaltyPoints">) => {
     const newCustomer: Customer = {
+      debtAmount: 0,
       ...customer,
-      id: `cust-${Date.now()}`,
+      id: generateUniqueId("cust"),
       loyaltyPoints: 0,
       branchId: state.activeBranchId
     };
@@ -413,6 +475,7 @@ export function usePOSState() {
       customers: [newCustomer, ...prev.customers]
     }));
     logAction("إضافة عميل", `تم تسجيل العميل الجديد: ${newCustomer.name}`);
+    return newCustomer;
   }, [state.activeBranchId, logAction]);
 
   const recordCustomerPayment = useCallback((customerId: string, amount: number) => {
@@ -434,7 +497,7 @@ export function usePOSState() {
   const addSupplier = useCallback((supplier: Omit<Supplier, "id" | "branchId">) => {
     const newSupplier: Supplier = {
       ...supplier,
-      id: `supp-${Date.now()}`,
+      id: generateUniqueId("supp"),
       branchId: state.activeBranchId
     };
     setState(prev => ({
@@ -482,11 +545,11 @@ export function usePOSState() {
     const tax = Number((afterDiscount * taxRate).toFixed(2));
     const total = Number((afterDiscount + tax).toFixed(2));
 
-    const invoiceNumber = `INV-${Date.now().toString().slice(-6)}`;
+    const invoiceNumber = `INV-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
     const customer = state.customers.find(c => c.id === customerId);
 
     const newSale: Sale = {
-      id: `sale-${Date.now()}`,
+      id: generateUniqueId("sale"),
       invoiceNumber,
       items,
       subtotal: Number(subtotal.toFixed(2)),
@@ -537,14 +600,22 @@ export function usePOSState() {
     }));
 
     logAction("عملية بيع", `تم إصدار الفاتورة ${invoiceNumber} بمبلغ ${total} دفع: ${paymentMethod}`);
+    if (!offlineSync.isOnline) {
+      offlineSync.enqueueAction(
+        "SALE",
+        newSale,
+        `عملية بيع دون اتصال - فاتورة رقم ${invoiceNumber}`,
+        `Offline sale transaction - Invoice ${invoiceNumber}`
+      );
+    }
     return newSale;
-  }, [state.products, state.customers, state.activeBranchId, state.currentUser, logAction]);
+  }, [state.products, state.customers, state.activeBranchId, state.currentUser, logAction, offlineSync]);
 
   // Expenses & Salary
   const addExpense = useCallback((expense: Omit<Expense, "id" | "timestamp" | "branchId">) => {
     const newExpense: Expense = {
       ...expense,
-      id: `exp-${Date.now()}`,
+      id: generateUniqueId("exp"),
       timestamp: new Date().toISOString(),
       branchId: state.activeBranchId
     };
@@ -558,7 +629,7 @@ export function usePOSState() {
   const addSalaryPayout = useCallback((payout: Omit<SalaryPayout, "id" | "branchId">) => {
     const newPayout: SalaryPayout = {
       ...payout,
-      id: `sal-${Date.now()}`,
+      id: generateUniqueId("sal"),
       branchId: state.activeBranchId
     };
     setState(prev => ({
@@ -571,7 +642,7 @@ export function usePOSState() {
   // Carts Suspension
   const suspendCart = useCallback((name: string, items: CartItem[], customerId?: string) => {
     const newSuspended = {
-      id: `susp-${Date.now()}`,
+      id: generateUniqueId("susp"),
       name,
       items,
       customerId,
@@ -611,8 +682,31 @@ export function usePOSState() {
     logAction("تحديث صلاحية", `تم تغيير صلاحية الموظف إلى ${role}`);
   }, [logAction]);
 
-  // Branch Synchronization simulation
+  const updateRolePin = useCallback((role: UserRole, newPin: string) => {
+    setState(prev => ({
+      ...prev,
+      rolePins: {
+        ...(prev.rolePins || INITIAL_ROLE_PINS),
+        [role]: newPin
+      }
+    }));
+    logAction("تحديث رمز الأمان", `تم تحديث رمز الدخول/الترقية الخاص بصلاحية (${role})`);
+  }, [logAction]);
+
+  // Branch Synchronization & Offline Queue Flush
   const syncBranches = useCallback(async () => {
+    if (!offlineSync.isOnline) {
+      offlineSync.enqueueAction(
+        "BRANCH_SYNC",
+        { timestamp: new Date().toISOString() },
+        "مزامنة السحابية معلقة لعدم توفر اتصال بالإنترنت",
+        "Cloud branch sync queued due to offline status"
+      );
+      logAction("مزامنة الفروع (معلقة)", "تم إدراج طلب المزامنة في قائمة انتظار العمليات غير المتصلة");
+      return false;
+    }
+
+    const { syncedCount } = await offlineSync.processQueue();
     setState(prev => ({
       ...prev,
       branches: prev.branches.map(b => ({
@@ -621,15 +715,16 @@ export function usePOSState() {
         lastSyncTime: "الآن"
       }))
     }));
-    logAction("مزامنة الفروع", "تم مزامنة البيانات والعمليات مع السيرفر الرئيسي بنجاح");
+    logAction("مزامنة الفروع", syncedCount > 0 ? `تم مزامنة البيانات وتفريغ ${syncedCount} عملية معلقة بنجاح` : "تم مزامنة البيانات والعمليات مع السيرفر الرئيسي بنجاح");
     return true;
-  }, [logAction]);
+  }, [offlineSync, logAction]);
 
   return {
     state,
     toggleLanguage,
     toggleTheme,
     addProduct,
+    addProductsBulk,
     updateProduct,
     deleteProduct,
     addCustomer,
@@ -642,7 +737,9 @@ export function usePOSState() {
     suspendCart,
     resumeCart,
     updateUserRole,
+    updateRolePin,
     syncBranches,
-    logAction
+    logAction,
+    offlineSync
   };
 }

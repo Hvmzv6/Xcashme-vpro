@@ -21,10 +21,16 @@ import {
   CheckCircle2,
   X,
   RefreshCw,
-  UserCheck
+  UserCheck,
+  Wifi,
+  WifiOff,
+  Lock
 } from "lucide-react";
 
 import { usePOSState } from "./core/database/usePOSState";
+import { Permission, hasPermission } from "./core/security/rbac";
+import { RBACGuard } from "./shared/components/RBACGuard";
+import { SecurePinOverlay } from "./shared/components/SecurePinOverlay";
 import {
   Product,
   CartItem,
@@ -45,6 +51,7 @@ import { PayrollView } from "./features/payroll/components/PayrollView";
 import { ReportsView } from "./features/reports/components/ReportsView";
 import { SettingsView } from "./features/settings/components/SettingsView";
 import { ReceiptModal } from "./features/checkout/components/ReceiptModal";
+import { OfflineSyncModal } from "./features/sync/components/OfflineSyncModal";
 import { useBarcodeScanner } from "./shared/hooks/useBarcodeScanner";
 
 export default function App() {
@@ -53,6 +60,7 @@ export default function App() {
     toggleLanguage,
     toggleTheme,
     addProduct,
+    addProductsBulk,
     updateProduct,
     deleteProduct,
     addCustomer,
@@ -65,8 +73,10 @@ export default function App() {
     suspendCart,
     resumeCart,
     updateUserRole,
+    updateRolePin,
     syncBranches,
-    logAction
+    logAction,
+    offlineSync
   } = usePOSState();
 
   const isAr = state.language === "ar";
@@ -76,6 +86,7 @@ export default function App() {
 
   // Active tab state
   const [activeTab, setActiveTab] = useState<"pos" | "inventory" | "partners" | "payroll" | "reports" | "sync">("pos");
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
 
   // Local view triggers
   const [searchQuery, setSearchQuery] = useState("");
@@ -110,6 +121,51 @@ export default function App() {
     setTimeout(() => {
       setToastMessage(null);
     }, 4000);
+  };
+
+  // Global Secure PIN Overlay Guard State
+  const [pinGuardOverlay, setPinGuardOverlay] = useState<{
+    isOpen: boolean;
+    titleAr: string;
+    titleEn: string;
+    subtitleAr?: string;
+    subtitleEn?: string;
+    onSuccess: (role: UserRole) => void;
+  } | null>(null);
+
+  const triggerPinAuth = (
+    titleAr: string,
+    titleEn: string,
+    onSuccess: (role: UserRole) => void,
+    subtitleAr?: string,
+    subtitleEn?: string
+  ) => {
+    setPinGuardOverlay({
+      isOpen: true,
+      titleAr,
+      titleEn,
+      subtitleAr,
+      subtitleEn,
+      onSuccess
+    });
+  };
+
+  const handleProtectedTabClick = (tab: any, requiredPerm: Permission, titleAr: string, titleEn: string) => {
+    if (hasPermission(state.currentUser.role, requiredPerm)) {
+      setActiveTab(tab);
+    } else {
+      triggerPinAuth(
+        `الوصول إلى: ${titleAr}`,
+        `Access Module: ${titleEn}`,
+        (authorizedRole) => {
+          updateUserRole(state.currentUser.id, authorizedRole);
+          setActiveTab(tab);
+          triggerToast(isAr ? `تم التحقق برمز المشرف وفتح الوحدة (${authorizedRole})` : `Supervisor PIN verified. Unlocked (${authorizedRole})`);
+        },
+        `صلاحيتك الحالية (${state.currentUser.role}) مقيدة. أدخل رمز المشرف/المدير للمتابعة.`,
+        `Your current role (${state.currentUser.role}) restricted. Enter supervisor PIN to unlock.`
+      );
+    }
   };
 
   // Hardware USB Wedge Barcode Scanner Listener
@@ -391,14 +447,49 @@ export default function App() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3.5">
-          <div className={`flex items-center gap-2 ${styles.badgeWell} px-3.5 py-1.5 rounded-lg text-xs`}>
+          <button
+            onClick={() => setIsSyncModalOpen(true)}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all shadow-sm cursor-pointer ${
+              !offlineSync.isOnline
+                ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30"
+                : offlineSync.syncQueue.length > 0
+                ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 hover:bg-indigo-500/30 animate-pulse"
+                : `${styles.badgeWell} hover:border-emerald-500/40`
+            }`}
+            title={isAr ? "انقر لمراقبة طابور المزامنة وحالة الاتصال" : "Click to monitor offline queue and status"}
+          >
             <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${!offlineSync.isOnline ? "bg-amber-400" : "bg-emerald-400"} opacity-75`}></span>
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${!offlineSync.isOnline ? "bg-amber-500" : "bg-emerald-500"}`}></span>
             </span>
-            <span className="font-medium">{t.branchStatus}</span>
-            <span className={`${styles.textSecondary} font-mono`}>| {t.online}</span>
-          </div>
+            {!offlineSync.isOnline ? (
+              <span className="flex items-center gap-1.5">
+                <WifiOff className="w-3.5 h-3.5 text-amber-400" />
+                <span>{isAr ? "وضع دون اتصال (Offline)" : "Offline Mode"}</span>
+                {offlineSync.syncQueue.length > 0 && (
+                  <span className="px-1.5 py-0.5 bg-amber-500/30 rounded-full text-[10px] font-mono">
+                    {offlineSync.syncQueue.length} {isAr ? "معلق" : "Pending"}
+                  </span>
+                )}
+              </span>
+            ) : offlineSync.isSyncing ? (
+              <span className="flex items-center gap-1.5">
+                <RefreshCw className="w-3.5 h-3.5 text-indigo-400 animate-spin" />
+                <span>{isAr ? "جاري المزامنة..." : "Syncing Queue..."}</span>
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5">
+                <Wifi className="w-3.5 h-3.5 text-emerald-400" />
+                <span>{t.branchStatus}</span>
+                <span className={`${styles.textSecondary} font-mono`}>| {t.online}</span>
+                {offlineSync.syncQueue.length > 0 && (
+                  <span className="px-1.5 py-0.5 bg-indigo-500/30 rounded-full text-[10px] font-mono">
+                    {offlineSync.syncQueue.length}
+                  </span>
+                )}
+              </span>
+            )}
+          </button>
 
           <div className={`flex items-center gap-2 ${styles.badgeActive} px-3 py-1.5 rounded-lg text-xs font-mono`}>
             <UserCheck className="w-3.5 h-3.5 text-blue-400" />
@@ -450,18 +541,20 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => setActiveTab("inventory")}
+            onClick={() => handleProtectedTabClick("inventory", Permission.VIEW_INVENTORY, "إدارة المخزون والتسعير", "Inventory & Price Tier Management")}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
               activeTab === "inventory" ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/10" : styles.sidebarBtnUnselected
             }`}
           >
             <Box className="w-4 h-4" />
             <span>{t.inventory}</span>
-            {lowStockProducts.length > 0 && (
+            {!hasPermission(state.currentUser.role, Permission.VIEW_INVENTORY) ? (
+              <Lock className="w-3.5 h-3.5 text-rose-400 ms-auto animate-pulse" title="Requires Manager/Admin" />
+            ) : lowStockProducts.length > 0 ? (
               <span className="ms-auto bg-amber-500 text-slate-950 text-[10px] font-bold px-2 py-0.5 rounded-full animate-pulse">
                 {lowStockProducts.length}
               </span>
-            )}
+            ) : null}
           </button>
 
           <button
@@ -475,33 +568,42 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => setActiveTab("payroll")}
+            onClick={() => handleProtectedTabClick("payroll", Permission.VIEW_EXPENSES, "الرواتب والمصروفات التشغيلية", "Payroll & Operational Expenses")}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
               activeTab === "payroll" ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/10" : styles.sidebarBtnUnselected
             }`}
           >
             <CreditCard className="w-4 h-4" />
             <span>{t.expenses}</span>
+            {!hasPermission(state.currentUser.role, Permission.VIEW_EXPENSES) && (
+              <Lock className="w-3.5 h-3.5 text-rose-400 ms-auto animate-pulse" title="Requires Manager/Admin" />
+            )}
           </button>
 
           <button
-            onClick={() => setActiveTab("reports")}
+            onClick={() => handleProtectedTabClick("reports", Permission.VIEW_REPORTS, "التقارير المالية والأرباح", "Financial Reports & Net Profit Analytics")}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
               activeTab === "reports" ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/10" : styles.sidebarBtnUnselected
             }`}
           >
             <TrendingUp className="w-4 h-4" />
             <span>{t.salesReports}</span>
+            {!hasPermission(state.currentUser.role, Permission.VIEW_REPORTS) && (
+              <Lock className="w-3.5 h-3.5 text-rose-400 ms-auto animate-pulse" title="Requires Manager/Admin" />
+            )}
           </button>
 
           <button
-            onClick={() => setActiveTab("sync")}
+            onClick={() => handleProtectedTabClick("sync", Permission.VIEW_SETTINGS, "إعدادات المزامنة وقواعد البيانات", "Database Sync & System Administration")}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
               activeTab === "sync" ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/10" : styles.sidebarBtnUnselected
             }`}
           >
             <Settings className="w-4 h-4" />
             <span>{t.syncSettings}</span>
+            {!hasPermission(state.currentUser.role, Permission.VIEW_SETTINGS) && (
+              <Lock className="w-3.5 h-3.5 text-rose-400 ms-auto animate-pulse" title="Requires Manager/Admin" />
+            )}
           </button>
 
           <div className={`pt-6 border-t ${styles.wellBorder} mt-4`}>
@@ -554,24 +656,44 @@ export default function App() {
                   isAr={isAr}
                   isDark={isDark}
                   filteredProducts={filteredProducts}
+                  onTriggerPinAuth={triggerPinAuth}
+                  addCustomer={addCustomer}
                 />
               )}
 
               {activeTab === "inventory" && (
-                <InventoryView
-                  state={state}
-                  t={t}
-                  styles={styles}
-                  isAr={isAr}
-                  isDark={isDark}
-                  addProduct={addProduct}
-                  updateProduct={updateProduct}
-                  deleteProduct={deleteProduct}
-                  triggerToast={triggerToast}
-                  filteredProducts={filteredProducts}
-                  lowStockProducts={lowStockProducts}
-                  totalStockVal={totalStockVal}
-                />
+                hasPermission(state.currentUser.role, Permission.VIEW_INVENTORY) ? (
+                  <InventoryView
+                    state={state}
+                    t={t}
+                    styles={styles}
+                    isAr={isAr}
+                    isDark={isDark}
+                    addProduct={addProduct}
+                    addProductsBulk={addProductsBulk}
+                    updateProduct={updateProduct}
+                    deleteProduct={deleteProduct}
+                    triggerToast={triggerToast}
+                    filteredProducts={filteredProducts}
+                    lowStockProducts={lowStockProducts}
+                    totalStockVal={totalStockVal}
+                  />
+                ) : (
+                  <RBACGuard
+                    currentRole={state.currentUser.role}
+                    requiredPermission={Permission.VIEW_INVENTORY}
+                    moduleNameAr="إدارة المخزون والتسعير"
+                    moduleNameEn="Inventory & Price Tier Management"
+                    isAr={isAr}
+                    styles={styles}
+                    rolePins={state.rolePins}
+                    onOverrideRole={(newRole) => {
+                      updateUserRole(state.currentUser.id, newRole);
+                      triggerToast(isAr ? `تم ترقية الصلاحية الفعالة إلى ${newRole}` : `Role upgraded to ${newRole}`);
+                    }}
+                    onBackToPOS={() => setActiveTab("pos")}
+                  />
+                )
               )}
 
               {activeTab === "partners" && (
@@ -589,52 +711,132 @@ export default function App() {
               )}
 
               {activeTab === "payroll" && (
-                <PayrollView
-                  state={state}
-                  t={t}
-                  styles={styles}
-                  isAr={isAr}
-                  addExpense={addExpense}
-                  addSalaryPayout={addSalaryPayout}
-                  triggerToast={triggerToast}
-                />
+                hasPermission(state.currentUser.role, Permission.VIEW_EXPENSES) ? (
+                  <PayrollView
+                    state={state}
+                    t={t}
+                    styles={styles}
+                    isAr={isAr}
+                    addExpense={addExpense}
+                    addSalaryPayout={addSalaryPayout}
+                    triggerToast={triggerToast}
+                  />
+                ) : (
+                  <RBACGuard
+                    currentRole={state.currentUser.role}
+                    requiredPermission={Permission.VIEW_EXPENSES}
+                    moduleNameAr="الرواتب والمصروفات التشغيلية"
+                    moduleNameEn="Payroll & Operational Expenses"
+                    isAr={isAr}
+                    styles={styles}
+                    rolePins={state.rolePins}
+                    onOverrideRole={(newRole) => {
+                      updateUserRole(state.currentUser.id, newRole);
+                      triggerToast(isAr ? `تم ترقية الصلاحية الفعالة إلى ${newRole}` : `Role upgraded to ${newRole}`);
+                    }}
+                    onBackToPOS={() => setActiveTab("pos")}
+                  />
+                )
               )}
 
               {activeTab === "reports" && (
-                <ReportsView
-                  state={state}
-                  t={t}
-                  styles={styles}
-                  isAr={isAr}
-                  totalSalesRevenue={totalSalesRevenue}
-                  totalExpensesCost={totalExpensesCost}
-                  estimatedNetProfit={estimatedNetProfit}
-                  branchSalesData={branchSalesData}
-                  salesTrendData={salesTrendData}
-                  categoryShareData={categoryShareData}
-                />
+                hasPermission(state.currentUser.role, Permission.VIEW_REPORTS) ? (
+                  <ReportsView
+                    state={state}
+                    t={t}
+                    styles={styles}
+                    isAr={isAr}
+                    totalSalesRevenue={totalSalesRevenue}
+                    totalExpensesCost={totalExpensesCost}
+                    estimatedNetProfit={estimatedNetProfit}
+                    branchSalesData={branchSalesData}
+                    salesTrendData={salesTrendData}
+                    categoryShareData={categoryShareData}
+                  />
+                ) : (
+                  <RBACGuard
+                    currentRole={state.currentUser.role}
+                    requiredPermission={Permission.VIEW_REPORTS}
+                    moduleNameAr="التقارير المالية والأرباح"
+                    moduleNameEn="Financial Reports & Net Profit Analytics"
+                    isAr={isAr}
+                    styles={styles}
+                    rolePins={state.rolePins}
+                    onOverrideRole={(newRole) => {
+                      updateUserRole(state.currentUser.id, newRole);
+                      triggerToast(isAr ? `تم ترقية الصلاحية الفعالة إلى ${newRole}` : `Role upgraded to ${newRole}`);
+                    }}
+                    onBackToPOS={() => setActiveTab("pos")}
+                  />
+                )
               )}
 
               {activeTab === "sync" && (
-                <SettingsView
-                  state={state}
-                  t={t}
-                  styles={styles}
-                  isAr={isAr}
-                  updateUserRole={updateUserRole}
-                  syncBranches={syncBranches}
-                  handleExportDB={handleExportDB}
-                  handleImportDB={handleImportDB}
-                  triggerToast={triggerToast}
-                />
+                hasPermission(state.currentUser.role, Permission.VIEW_SETTINGS) ? (
+                  <SettingsView
+                    state={state}
+                    t={t}
+                    styles={styles}
+                    isAr={isAr}
+                    updateUserRole={updateUserRole}
+                    updateRolePin={updateRolePin}
+                    syncBranches={syncBranches}
+                    handleExportDB={handleExportDB}
+                    handleImportDB={handleImportDB}
+                    triggerToast={triggerToast}
+                  />
+                ) : (
+                  <RBACGuard
+                    currentRole={state.currentUser.role}
+                    requiredPermission={Permission.VIEW_SETTINGS}
+                    moduleNameAr="إعدادات المزامنة وقواعد البيانات"
+                    moduleNameEn="Database Sync & System Administration"
+                    isAr={isAr}
+                    styles={styles}
+                    rolePins={state.rolePins}
+                    onOverrideRole={(newRole) => {
+                      updateUserRole(state.currentUser.id, newRole);
+                      triggerToast(isAr ? `تم ترقية الصلاحية الفعالة إلى ${newRole}` : `Role upgraded to ${newRole}`);
+                    }}
+                    onBackToPOS={() => setActiveTab("pos")}
+                  />
+                )
               )}
             </motion.div>
           </AnimatePresence>
         </main>
       </div>
 
+      {/* Offline Sync Monitor Modal */}
+      <OfflineSyncModal
+        isOpen={isSyncModalOpen}
+        onClose={() => setIsSyncModalOpen(false)}
+        isAr={isAr}
+        offlineSync={offlineSync}
+        triggerToast={triggerToast}
+      />
+
       {/* simulated active Receipt print popup dialog */}
       <AnimatePresence>
+        {/* Secure PIN Overlay Guard */}
+        <SecurePinOverlay
+          isOpen={!!pinGuardOverlay?.isOpen}
+          actionTitleAr={pinGuardOverlay?.titleAr || ""}
+          actionTitleEn={pinGuardOverlay?.titleEn || ""}
+          actionSubtitleAr={pinGuardOverlay?.subtitleAr}
+          actionSubtitleEn={pinGuardOverlay?.subtitleEn}
+          rolePins={state.rolePins}
+          isAr={isAr}
+          styles={styles}
+          onAuthorized={(authorizedRole) => {
+            if (pinGuardOverlay?.onSuccess) {
+              pinGuardOverlay.onSuccess(authorizedRole);
+            }
+            setPinGuardOverlay(null);
+          }}
+          onClose={() => setPinGuardOverlay(null)}
+        />
+
         {activeReceipt && (
           <ReceiptModal
             activeReceipt={activeReceipt}

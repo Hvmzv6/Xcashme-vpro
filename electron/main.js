@@ -312,29 +312,54 @@ function initAutoUpdater() {
 // ==========================================
 function startBackendServer() {
   const isPackaged = app.isPackaged;
-  const serverPath = path.join(__dirname, '../dist/server.cjs');
-
-  process.env.NODE_ENV = isPackaged ? 'production' : 'development';
+  
+  process.env.NODE_ENV = 'production';
+  process.env.IS_ELECTRON = 'true';
   process.env.PORT = PORT.toString();
   if (!process.env.USER_DATA_PATH) {
     process.env.USER_DATA_PATH = app.getPath('userData');
   }
 
-  if (fs.existsSync(serverPath)) {
-    if (isPackaged) {
-      console.log(`[Electron POS] Loading packaged backend directly inside main Electron process: ${serverPath}`);
+  const possiblePaths = [
+    path.join(__dirname, '../dist/server.cjs'),
+    path.join(__dirname, 'dist/server.cjs'),
+    path.join(process.resourcesPath || '', 'app.asar.unpacked/dist/server.cjs')
+  ];
+
+  let serverPath = possiblePaths.find(p => fs.existsSync(p));
+
+  if (serverPath) {
+    console.log(`[Electron POS] Loading backend Express server directly inside main process: ${serverPath}`);
+    try {
+      // Running inside Electron's main process ensures Electron's patched fs module
+      // allows Express and res.sendFile to seamlessly serve static files out of app.asar/dist.
+      require(serverPath);
+      console.log('[Electron POS] Standalone backend server initialized successfully.');
+    } catch (err) {
+      console.error('[Electron POS] Direct require failed, attempting Electron-node fork:', err);
       try {
-        require(serverPath);
-        console.log('[Electron POS] Packaged Express backend loaded successfully.');
-      } catch (err) {
-        console.error('[Electron POS] Error requiring backend module inside main process:', err);
+        backendProcess = fork(serverPath, [], {
+          env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+          execPath: process.execPath,
+          stdio: 'inherit'
+        });
+      } catch (forkErr) {
+        console.error('[Electron POS] Fork fallback also failed:', forkErr);
       }
-    } else {
-      console.log(`[Electron POS] Spawning backend child process from: ${serverPath}`);
-      backendProcess = fork(serverPath, [], { env: process.env, stdio: 'inherit' });
     }
   } else {
-    console.log('[Electron POS] Dev mode detected: Ensure dev server is running.');
+    const tsServerPath = path.join(__dirname, '../server.ts');
+    if (fs.existsSync(tsServerPath)) {
+      console.log(`[Electron POS] Compiled dist/server.cjs not found. Automatically spawning source server.ts via tsx...`);
+      process.env.NODE_ENV = 'development';
+      backendProcess = fork(tsServerPath, [], {
+        execArgv: ['--import', 'tsx'],
+        env: process.env,
+        stdio: 'inherit'
+      });
+    } else {
+      console.error('[Electron POS] Critical: Backend server entry point not found.');
+    }
   }
 }
 
@@ -365,13 +390,17 @@ function createMainWindow() {
       console.log(`[Electron POS] Successfully loaded ${targetUrl}`);
       mainWindow.show();
     }).catch((err) => {
-      if (attempts < 20) {
-        console.warn(`[Electron POS] Server loading attempt ${attempts} failed (${err.message}). Retrying in 250ms...`);
-        setTimeout(() => loadApp(attempts + 1), 250);
+      if (attempts < 35) {
+        console.warn(`[Electron POS] Server loading attempt ${attempts} failed (${err.message}). Retrying in 200ms...`);
+        setTimeout(() => loadApp(attempts + 1), 200);
       } else {
         console.error(`[Electron POS] Failed to connect via HTTP after ${attempts} attempts. Falling back to direct local file load...`);
-        const indexPath = path.join(__dirname, '../dist/index.html');
-        if (fs.existsSync(indexPath)) {
+        const possibleIndexPaths = [
+          path.join(__dirname, '../dist/index.html'),
+          path.join(__dirname, 'dist/index.html')
+        ];
+        const indexPath = possibleIndexPaths.find(p => fs.existsSync(p));
+        if (indexPath) {
           mainWindow.loadFile(indexPath).then(() => {
             console.log('[Electron POS] Successfully loaded index.html fallback.');
             mainWindow.show();

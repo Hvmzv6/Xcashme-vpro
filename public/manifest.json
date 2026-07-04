@@ -1,0 +1,21 @@
+{
+  "short_name": "Xcashme POS",
+  "name": "Xcashme-vpro POS Cloud & Desktop",
+  "icons": [
+    {
+      "src": "https://images.unsplash.com/photo-1556742049-0a67d55febc4?w=192&h=192&fit=crop",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "https://images.unsplash.com/photo-1556742049-0a67d55febc4?w=512&h=512&fit=crop",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0f172a",
+  "theme_color": "#4f46e5",
+  "display": "standalone",
+  "orientation": "any"
+}

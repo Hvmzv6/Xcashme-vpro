@@ -6,6 +6,7 @@
 
 const { app, BrowserWindow, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const { fork } = require('child_process');
 
 let mainWindow = null;
@@ -14,32 +15,53 @@ let backendProcess = null;
 const PORT = process.env.PORT || 3000;
 
 function startBackendServer() {
-  const isPackaged = app.isPackaged;
-  
-  // In production desktop app, run the bundled server.cjs
-  // In dev mode, we can point to dist/server.cjs or use tsx
-  const serverPath = isPackaged 
-    ? path.join(__dirname, 'dist', 'server.cjs') 
-    : path.join(__dirname, 'dist', 'server.cjs');
-
   const env = {
     ...process.env,
-    NODE_ENV: isPackaged ? 'production' : 'development',
+    NODE_ENV: 'production',
+    IS_ELECTRON: 'true',
     PORT: PORT.toString(),
     USER_DATA_PATH: app.getPath('userData')
   };
 
-  console.log(`[Electron] Booting POS backend server on port ${PORT}...`);
-  console.log(`[Electron] SQLite DB Path: ${path.join(app.getPath('userData'), 'xcash_pos.sqlite')}`);
+  const possiblePaths = [
+    path.join(__dirname, 'dist', 'server.cjs'),
+    path.join(__dirname, 'server.cjs'),
+    path.join(process.resourcesPath || '', 'app.asar.unpacked/dist/server.cjs')
+  ];
 
-  backendProcess = fork(serverPath, [], {
-    env,
-    stdio: 'inherit'
-  });
+  let serverPath = possiblePaths.find(p => fs.existsSync(p));
 
-  backendProcess.on('error', (err) => {
-    console.error('[Electron] Backend Process Error:', err);
-  });
+  if (serverPath) {
+    console.log(`[Electron] Loading standalone POS backend server directly inside main process: ${serverPath}`);
+    try {
+      require(serverPath);
+      console.log('[Electron] Standalone backend server initialized successfully.');
+    } catch (err) {
+      console.error('[Electron] Direct require failed, attempting Electron-node fork:', err);
+      try {
+        backendProcess = fork(serverPath, [], {
+          env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
+          execPath: process.execPath,
+          stdio: 'inherit'
+        });
+      } catch (forkErr) {
+        console.error('[Electron] Fork fallback also failed:', forkErr);
+      }
+    }
+  } else {
+    const tsServerPath = path.join(__dirname, 'server.ts');
+    if (fs.existsSync(tsServerPath)) {
+      console.log(`[Electron] Spawning source server.ts in dev mode...`);
+      env.NODE_ENV = 'development';
+      backendProcess = fork(tsServerPath, [], {
+        execArgv: ['--import', 'tsx'],
+        env,
+        stdio: 'inherit'
+      });
+    } else {
+      console.error('[Electron] Critical: Server entry point not found.');
+    }
+  }
 }
 
 function createMainWindow() {
@@ -49,8 +71,8 @@ function createMainWindow() {
     minWidth: 1024,
     minHeight: 700,
     title: 'Xcashme-vpro POS Desktop',
-    show: false, // Show gracefully when ready
-    backgroundColor: '#0f172a', // Slate-900 background to prevent white flashes
+    show: false,
+    backgroundColor: '#0f172a',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -58,18 +80,29 @@ function createMainWindow() {
     }
   });
 
-  // Remove default menu bar for POS kiosk feel (optional, can press Alt to show)
   mainWindow.setMenuBarVisibility(false);
 
-  // Give backend 1.2s to initialize Express + static server before loading
-  setTimeout(() => {
-    if (mainWindow) {
-      mainWindow.loadURL(`http://localhost:${PORT}`);
-      mainWindow.once('ready-to-show', () => {
-        mainWindow.show();
-      });
-    }
-  }, 1200);
+  const loadApp = (attempts = 1) => {
+    if (!mainWindow) return;
+    const targetUrl = `http://localhost:${PORT}`;
+    mainWindow.loadURL(targetUrl).then(() => {
+      console.log(`[Electron POS] Successfully loaded ${targetUrl}`);
+      mainWindow.show();
+    }).catch((err) => {
+      if (attempts < 35) {
+        setTimeout(() => loadApp(attempts + 1), 200);
+      } else {
+        const indexPath = path.join(__dirname, 'dist', 'index.html');
+        if (fs.existsSync(indexPath)) {
+          mainWindow.loadFile(indexPath).then(() => mainWindow.show()).catch(() => mainWindow.show());
+        } else {
+          mainWindow.show();
+        }
+      }
+    });
+  };
+
+  setTimeout(() => loadApp(1), 300);
 
   // Open external web links (like Gemini documentation or support) in default OS browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

@@ -155,4 +155,5 @@ export interface POSState {
   activeBranchId: string;
   language: "ar" | "en";
   theme: "light" | "dark";
+  rolePins?: Record<UserRole, string>;
 }
