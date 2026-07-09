@@ -127,27 +127,5 @@ Xcashme-vpro POS embeds a self-contained Node Express backend and local SQLite e
 
 ---
 
-## 🛠️ 4. Architecture & Directory Overview
-
-```
-xcashme-vpro-pos/
-├── electron/
-│   ├── main.js             # Electron main process & Express child runner
-│   └── preload.js          # Secure IPC bridge
-├── src/
-│   ├── core/database/      # State management & offline storage engine
-│   ├── features/
-│   │   ├── cart/           # POS Checkout & Cart view
-│   │   ├── inventory/      # Stock list, CSV validator modal & item editor
-│   │   ├── partners/       # Customers & Suppliers ledger
-│   │   ├── payroll/        # Staff shifts, advances & expenses
-│   │   ├── reports/        # Recharts analytics & tax summaries
-│   │   └── settings/       # Store profile, receipt header & tax rate configuration
-│   ├── shared/             # Bilingual dictionaries (AR/EN), barcode scanner hook
-│   └── types/              # TypeScript interfaces (Product, Sale, Partner)
-├── server.ts               # Express backend API & Cloud/Local SQLite sync proxy
-└── package.json            # Build configurations & asarUnpack rules
-```
-
 ---
-*Built with ❤️ following Clean Architecture and SOLID engineering principles.*
+*Built by HAMZUS .*
