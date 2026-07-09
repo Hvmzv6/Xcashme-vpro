@@ -346,7 +346,7 @@ export default function App() {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state, null, 2));
     const downloadAnchor = document.createElement("a");
     downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `xcash_backup_${new Date().toISOString().slice(0,10)}.json`);
+    downloadAnchor.setAttribute("download", `xcash_backup_${new Date().toISOString().slice(0, 10)}.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
@@ -416,7 +416,7 @@ export default function App() {
 
   return (
     <div className={`min-h-screen ${styles.bg} font-sans transition-colors duration-300`} dir={isAr ? "rtl" : "ltr"}>
-      
+
       {/* Toast system alerts */}
       <AnimatePresence>
         {toastMessage && (
@@ -449,13 +449,12 @@ export default function App() {
         <div className="flex flex-wrap items-center gap-3.5">
           <button
             onClick={() => setIsSyncModalOpen(true)}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all shadow-sm cursor-pointer ${
-              !offlineSync.isOnline
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all shadow-sm cursor-pointer ${!offlineSync.isOnline
                 ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30"
                 : offlineSync.syncQueue.length > 0
-                ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 hover:bg-indigo-500/30 animate-pulse"
-                : `${styles.badgeWell} hover:border-emerald-500/40`
-            }`}
+                  ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 hover:bg-indigo-500/30 animate-pulse"
+                  : `${styles.badgeWell} hover:border-emerald-500/40`
+              }`}
             title={isAr ? "انقر لمراقبة طابور المزامنة وحالة الاتصال" : "Click to monitor offline queue and status"}
           >
             <span className="relative flex h-2 w-2">
@@ -527,14 +526,13 @@ export default function App() {
       </header>
 
       <div className="flex flex-col lg:flex-row min-h-[calc(100vh-80px)]">
-        
+
         {/* Navigation panel */}
         <aside className={styles.sidebar}>
           <button
             onClick={() => setActiveTab("pos")}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
-              activeTab === "pos" ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/10" : styles.sidebarBtnUnselected
-            }`}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${activeTab === "pos" ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/10" : styles.sidebarBtnUnselected
+              }`}
           >
             <ShoppingBag className="w-4 h-4" />
             <span>{t.pos}</span>
@@ -542,14 +540,13 @@ export default function App() {
 
           <button
             onClick={() => handleProtectedTabClick("inventory", Permission.VIEW_INVENTORY, "إدارة المخزون والتسعير", "Inventory & Price Tier Management")}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
-              activeTab === "inventory" ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/10" : styles.sidebarBtnUnselected
-            }`}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${activeTab === "inventory" ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/10" : styles.sidebarBtnUnselected
+              }`}
           >
             <Box className="w-4 h-4" />
             <span>{t.inventory}</span>
             {!hasPermission(state.currentUser.role, Permission.VIEW_INVENTORY) ? (
-              <Lock className="w-3.5 h-3.5 text-rose-400 ms-auto animate-pulse" title="Requires Manager/Admin" />
+              <Lock className="w-3.5 h-3.5 text-rose-400 ms-auto animate-pulse" aria-label="Requires Manager/Admin" />
             ) : lowStockProducts.length > 0 ? (
               <span className="ms-auto bg-amber-500 text-slate-950 text-[10px] font-bold px-2 py-0.5 rounded-full animate-pulse">
                 {lowStockProducts.length}
@@ -559,9 +556,8 @@ export default function App() {
 
           <button
             onClick={() => setActiveTab("partners")}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
-              activeTab === "partners" ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/10" : styles.sidebarBtnUnselected
-            }`}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${activeTab === "partners" ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/10" : styles.sidebarBtnUnselected
+              }`}
           >
             <Users className="w-4 h-4" />
             <span>{t.customers}</span>
@@ -569,47 +565,44 @@ export default function App() {
 
           <button
             onClick={() => handleProtectedTabClick("payroll", Permission.VIEW_EXPENSES, "الرواتب والمصروفات التشغيلية", "Payroll & Operational Expenses")}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
-              activeTab === "payroll" ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/10" : styles.sidebarBtnUnselected
-            }`}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${activeTab === "payroll" ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/10" : styles.sidebarBtnUnselected
+              }`}
           >
             <CreditCard className="w-4 h-4" />
             <span>{t.expenses}</span>
             {!hasPermission(state.currentUser.role, Permission.VIEW_EXPENSES) && (
-              <Lock className="w-3.5 h-3.5 text-rose-400 ms-auto animate-pulse" title="Requires Manager/Admin" />
+              <Lock className="w-3.5 h-3.5 text-rose-400 ms-auto animate-pulse" aria-label="Requires Manager/Admin" />
             )}
           </button>
 
           <button
             onClick={() => handleProtectedTabClick("reports", Permission.VIEW_REPORTS, "التقارير المالية والأرباح", "Financial Reports & Net Profit Analytics")}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
-              activeTab === "reports" ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/10" : styles.sidebarBtnUnselected
-            }`}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${activeTab === "reports" ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/10" : styles.sidebarBtnUnselected
+              }`}
           >
             <TrendingUp className="w-4 h-4" />
             <span>{t.salesReports}</span>
             {!hasPermission(state.currentUser.role, Permission.VIEW_REPORTS) && (
-              <Lock className="w-3.5 h-3.5 text-rose-400 ms-auto animate-pulse" title="Requires Manager/Admin" />
+              <Lock className="w-3.5 h-3.5 text-rose-400 ms-auto animate-pulse" aria-label="Requires Manager/Admin" />
             )}
           </button>
 
           <button
             onClick={() => handleProtectedTabClick("sync", Permission.VIEW_SETTINGS, "إعدادات المزامنة وقواعد البيانات", "Database Sync & System Administration")}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
-              activeTab === "sync" ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/10" : styles.sidebarBtnUnselected
-            }`}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${activeTab === "sync" ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/10" : styles.sidebarBtnUnselected
+              }`}
           >
             <Settings className="w-4 h-4" />
             <span>{t.syncSettings}</span>
             {!hasPermission(state.currentUser.role, Permission.VIEW_SETTINGS) && (
-              <Lock className="w-3.5 h-3.5 text-rose-400 ms-auto animate-pulse" title="Requires Manager/Admin" />
+              <Lock className="w-3.5 h-3.5 text-rose-400 ms-auto animate-pulse" aria-label="Requires Manager/Admin" />
             )}
           </button>
 
           <div className={`pt-6 border-t ${styles.wellBorder} mt-4`}>
             <button
               onClick={() => setIsAssistantOpen(true)}
-              className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-xs font-bold bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white shadow-lg shadow-violet-500/20 transition-all cursor-pointer"
+              className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-xs font-bold bg-linear-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white shadow-lg shadow-violet-500/20 transition-all cursor-pointer"
             >
               <Sparkles className="w-4 h-4 animate-spin-slow text-amber-300" />
               <span>{t.assistantTitle}</span>
@@ -854,7 +847,7 @@ export default function App() {
       <AnimatePresence>
         {isAssistantOpen && (
           <div className={`fixed inset-y-0 right-0 z-50 w-full sm:w-96 ${styles.card} border-l ${styles.wellBorder} shadow-2xl flex flex-col`}>
-            
+
             <div className={`p-4 border-b ${styles.wellBorder} ${styles.well} flex items-center justify-between`}>
               <div className="flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-indigo-500 animate-spin-slow" />
@@ -877,11 +870,10 @@ export default function App() {
                   className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                 >
                   <div
-                    className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${
-                      msg.role === "user"
+                    className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${msg.role === "user"
                         ? "bg-indigo-600 text-white rounded-br-none"
                         : `${styles.well} ${styles.textPrimary} border ${styles.wellBorder} rounded-bl-none`
-                    }`}
+                      }`}
                   >
                     {msg.content}
                   </div>

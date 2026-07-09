@@ -6,7 +6,7 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Search, ShoppingCart, Trash2, Minus, Plus, Printer, AlertTriangle, Lock, UserPlus, X } from "lucide-react";
-import { Product, CartItem, PaymentMethod, POSState } from "../../../types/pos";
+import { Product, CartItem, PaymentMethod, POSState, UserRole } from "../../../types/pos";
 import { Permission, hasPermission } from "../../../core/security/rbac";
 
 interface POSViewProps {

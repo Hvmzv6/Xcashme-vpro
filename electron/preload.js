@@ -5,7 +5,7 @@
  * Exposes secure IPC channels to the React frontend renderer window.
  */
 
-import { contextBridge, ipcRenderer } from 'electron';
+const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   // SQLite Database Operations via better-sqlite3
@@ -19,7 +19,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   installUpdateNow: () => ipcRenderer.invoke('install-update-now'),
   onUpdateStatus: (callback) => {
-    ipcRenderer.on('update-status', (event, data) => callback(data));
+    ipcRenderer.on('update-status', (_event, data) => callback(data));
   },
 
   // Platform & Environment info

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 export interface QueuedSyncItem {
   id: string;
@@ -8,9 +8,22 @@ export interface QueuedSyncItem {
   descriptionAr: string;
   descriptionEn: string;
   retries: number;
+  nextRetryAt?: string;
+  lastError?: string;
 }
 
 const STORAGE_KEY = "xcash_pos_sync_queue";
+const MAX_RETRIES = 5;
+const BASE_RETRY_DELAY_MS = 2000;
+
+function calculateNextRetryAt(retries: number) {
+  const delay = Math.min(30000, BASE_RETRY_DELAY_MS * Math.max(1, retries));
+  return new Date(Date.now() + delay).toISOString();
+}
+
+function isConflictResponse(response: Response, payload: any) {
+  return response.status === 409 || response.status === 429 || payload?.status === "conflict";
+}
 
 export function useOfflineSyncQueue() {
   const [isOnline, setIsOnline] = useState<boolean>(
@@ -74,13 +87,15 @@ export function useOfflineSyncQueue() {
         descriptionAr,
         descriptionEn,
         retries: 0,
+        nextRetryAt: undefined,
+        lastError: undefined,
       };
 
       setQueue((prev) => {
         const nextQueue = [...prev, newItem];
         try {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(nextQueue));
-        } catch (e) {}
+        } catch (e) { }
         return nextQueue;
       });
 
@@ -96,7 +111,7 @@ export function useOfflineSyncQueue() {
       const filtered = prev.filter((item) => item.id !== id);
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
-      } catch (e) {}
+      } catch (e) { }
       return filtered;
     });
   }, []);
@@ -116,30 +131,66 @@ export function useOfflineSyncQueue() {
     let syncedCount = 0;
     let failedCount = 0;
     const remainingQueue: QueuedSyncItem[] = [];
+    const now = Date.now();
 
     for (const item of queue) {
+      if (item.nextRetryAt && new Date(item.nextRetryAt).getTime() > now) {
+        remainingQueue.push(item);
+        continue;
+      }
+
+      if (item.retries >= MAX_RETRIES) {
+        console.warn(`[OfflineSync] Dropping action after ${item.retries} retries: ${item.id}`);
+        failedCount++;
+        continue;
+      }
+
       try {
         // Send sync request to server backend
         const response = await fetch("/api/sync", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            requestId: item.id,
+            retryCount: item.retries,
             actionType: item.actionType,
             payload: item.payload,
             timestamp: item.timestamp,
           }),
         });
 
-        if (response.ok) {
+        const responseData = await response.json().catch(() => ({}));
+
+        if (response.ok && !isConflictResponse(response, responseData)) {
           syncedCount++;
+        } else if (isConflictResponse(response, responseData)) {
+          const nextRetries = item.retries + 1;
+          remainingQueue.push({
+            ...item,
+            retries: nextRetries,
+            nextRetryAt: calculateNextRetryAt(nextRetries),
+            lastError: responseData?.message || "Conflict detected during sync"
+          });
+          failedCount++;
         } else {
-          // If server responded with error (e.g. 500), keep in queue with incremented retry count
-          remainingQueue.push({ ...item, retries: item.retries + 1 });
+          const nextRetries = item.retries + 1;
+          remainingQueue.push({
+            ...item,
+            retries: nextRetries,
+            nextRetryAt: calculateNextRetryAt(nextRetries),
+            lastError: responseData?.error || `HTTP ${response.status}`
+          });
           failedCount++;
         }
       } catch (networkErr) {
         // Still offline or network unreachable
-        remainingQueue.push({ ...item, retries: item.retries + 1 });
+        const nextRetries = item.retries + 1;
+        remainingQueue.push({
+          ...item,
+          retries: nextRetries,
+          nextRetryAt: calculateNextRetryAt(nextRetries),
+          lastError: networkErr instanceof Error ? networkErr.message : "Network unreachable"
+        });
         failedCount++;
       }
     }

@@ -6,15 +6,15 @@
  * and IPC handlers for direct ESC/POS thermal printing.
  */
 
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
-import path from 'path';
-import fs from 'fs';
-import net from 'net';
-import { fileURLToPath } from 'url';
-import { createRequire } from 'module';
-import { fork } from 'child_process';
 import Database from 'better-sqlite3';
+import { fork } from 'child_process';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import updaterPkg from 'electron-updater';
+import fs from 'fs';
+import { createRequire } from 'module';
+import net from 'net';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 const { autoUpdater } = updaterPkg;
 
@@ -28,6 +28,138 @@ let db = null;
 let dbPath = '';
 
 const PORT = process.env.PORT || 3000;
+
+function getLoadingPage() {
+  const spinner = `
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Loading Xcashme-vpro POS</title>
+        <style>
+          :root {
+            color-scheme: dark;
+            --bg-1: #020617;
+            --bg-2: #0f172a;
+            --bg-3: #1e293b;
+            --accent: #6366f1;
+            --text: #e2e8f0;
+            --muted: #94a3b8;
+          }
+          * { box-sizing: border-box; }
+          html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            font-family: Inter, Segoe UI, Arial, sans-serif;
+            background:
+              radial-gradient(circle at top, rgba(99, 102, 241, 0.24), transparent 40%),
+              linear-gradient(160deg, var(--bg-1), var(--bg-2) 55%, var(--bg-3));
+            color: var(--text);
+            overflow: hidden;
+          }
+          .wrap {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+          }
+          .card {
+            width: min(460px, 100%);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            background: rgba(15, 23, 42, 0.72);
+            backdrop-filter: blur(16px);
+            border-radius: 24px;
+            padding: 28px 26px;
+            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+            text-align: center;
+          }
+          .brand {
+            font-size: 13px;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 16px;
+          }
+          .title {
+            font-size: 24px;
+            line-height: 1.2;
+            margin: 0 0 10px;
+          }
+          .subtitle {
+            margin: 0;
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.6;
+          }
+          .spinner {
+            width: 52px;
+            height: 52px;
+            margin: 0 auto 20px;
+            border-radius: 999px;
+            border: 4px solid rgba(148, 163, 184, 0.2);
+            border-top-color: var(--accent);
+            animation: spin 0.9s linear infinite;
+          }
+          .dots {
+            display: inline-flex;
+            gap: 8px;
+            margin-top: 18px;
+          }
+          .dots span {
+            width: 8px;
+            height: 8px;
+            border-radius: 999px;
+            background: var(--accent);
+            opacity: 0.45;
+            animation: pulse 1.2s infinite ease-in-out;
+          }
+          .dots span:nth-child(2) { animation-delay: 0.15s; }
+          .dots span:nth-child(3) { animation-delay: 0.3s; }
+          @keyframes spin { to { transform: rotate(360deg); } }
+          @keyframes pulse {
+            0%, 80%, 100% { transform: translateY(0); opacity: 0.35; }
+            40% { transform: translateY(-4px); opacity: 1; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="wrap">
+          <div class="card">
+            <div class="spinner"></div>
+            <div class="brand">Xcashme-vpro POS</div>
+            <h1 class="title">Starting the local backend</h1>
+            <p class="subtitle">Preparing SQLite, sync services, and the desktop interface. The app will open automatically when ready.</p>
+            <div class="dots" aria-hidden="true"><span></span><span></span><span></span></div>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  return `data:text/html;charset=utf-8,${encodeURIComponent(spinner)}`;
+}
+
+async function waitForBackendReady(maxAttempts = 60, delayMs = 250) {
+  const targetUrl = `http://127.0.0.1:${PORT}/api/db/load`;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const response = await fetch(targetUrl, { cache: 'no-store' });
+      if (response.ok) {
+        return true;
+      }
+    } catch (_) {
+      // Keep retrying until the backend is listening.
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+
+  return false;
+}
 
 // ==========================================
 // 1. SQLite Database Setup (better-sqlite3)
@@ -382,37 +514,66 @@ function createMainWindow() {
 
   mainWindow.setMenuBarVisibility(false);
 
+  mainWindow.loadURL(getLoadingPage()).then(() => {
+    mainWindow.show();
+  }).catch(() => {
+    mainWindow.show();
+  });
+
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    console.error(`[Electron POS] Failed to load ${validatedURL} (${errorCode}): ${errorDescription}`);
+  });
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[Electron POS] Renderer process gone:', details);
+  });
+
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    console.log(`[Electron Renderer] [${level}] ${message} (${sourceId}:${line})`);
+  });
+
   // Robust retry mechanism with local file fallback
-  const loadApp = (attempts = 1) => {
+  const loadApp = async () => {
     if (!mainWindow) return;
-    const targetUrl = `http://localhost:${PORT}`;
-    mainWindow.loadURL(targetUrl).then(() => {
+
+    const backendReady = await waitForBackendReady();
+    if (!backendReady) {
+      console.error('[Electron POS] Backend did not become ready in time. Falling back to local file load...');
+    }
+
+    const targetUrl = `http://localhost:${PORT}/?boot=${Date.now()}`;
+    try {
+      await mainWindow.loadURL(targetUrl);
       console.log(`[Electron POS] Successfully loaded ${targetUrl}`);
       mainWindow.show();
-    }).catch((err) => {
-      if (attempts < 35) {
-        console.warn(`[Electron POS] Server loading attempt ${attempts} failed (${err.message}). Retrying in 200ms...`);
-        setTimeout(() => loadApp(attempts + 1), 200);
-      } else {
-        console.error(`[Electron POS] Failed to connect via HTTP after ${attempts} attempts. Falling back to direct local file load...`);
-        const possibleIndexPaths = [
-          path.join(__dirname, '../dist/index.html'),
-          path.join(__dirname, 'dist/index.html')
-        ];
-        const indexPath = possibleIndexPaths.find(p => fs.existsSync(p));
-        if (indexPath) {
-          mainWindow.loadFile(indexPath).then(() => {
-            console.log('[Electron POS] Successfully loaded index.html fallback.');
-            mainWindow.show();
-          }).catch(() => mainWindow.show());
-        } else {
-          mainWindow.show();
-        }
-      }
-    });
+      return;
+    } catch (err) {
+      console.warn(`[Electron POS] HTTP load failed (${err.message}). Falling back to local file load...`);
+    }
+
+    const possibleIndexPaths = [
+      path.join(__dirname, '../dist/index.html'),
+      path.join(__dirname, 'dist/index.html')
+    ];
+    const indexPath = possibleIndexPaths.find(p => fs.existsSync(p));
+    if (indexPath) {
+      await mainWindow.loadFile(indexPath);
+      console.log('[Electron POS] Successfully loaded index.html fallback.');
+    }
+
+    if (mainWindow && !mainWindow.isVisible()) {
+      mainWindow.show();
+    }
   };
 
-  setTimeout(() => loadApp(1), 300);
+  setTimeout(() => {
+    loadApp().catch((err) => {
+      console.error('[Electron POS] Startup load failed:', err);
+      if (mainWindow && !mainWindow.isVisible()) {
+        mainWindow.show();
+      }
+    });
+  }, 300);
 
   // Safety net: Ensure window always shows within 3.5 seconds
   setTimeout(() => {
@@ -421,12 +582,10 @@ function createMainWindow() {
     }
   }, 3500);
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('http:') || url.startsWith('https:')) {
-      shell.openExternal(url);
-      return { action: 'deny' };
+  mainWindow.once('ready-to-show', () => {
+    if (mainWindow && !mainWindow.isVisible()) {
+      mainWindow.show();
     }
-    return { action: 'allow' };
   });
 
   mainWindow.on('closed', () => {
